@@ -1,0 +1,16 @@
+<!-- @route apps/extension/offscreen.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Lexie Offscreen</title>
+</head>
+<body>
+  <!--
+    Documento invisível exigido pelo Manifest V3.
+    O MediaRecorder não pode rodar no Service Worker —
+    precisa de um contexto de página. Este arquivo é esse contexto.
+  -->
+  <script type="module" src="offscreen.js"></script>
+</body>
+</html>

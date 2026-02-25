@@ -1,0 +1,27 @@
+@"
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+.next/
+out/
+build/
+dist/
+
+# Env — NUNCA commitar chaves reais
+.env.local
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Supabase
+.branches
+"@ | Out-File -Encoding utf8 .gitignore

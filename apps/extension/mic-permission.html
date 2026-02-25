@@ -1,0 +1,95 @@
+<!-- @route apps/extension/mic-permission.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Lexie — Permissão de Microfone</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green:       #4CAF50;
+      --green-dark:  #388E3C;
+      --green-light: #E8F5E9;
+      --bg:          #FAFAF7;
+      --border:      #E8E8E0;
+      --text:        #1A1F1A;
+      --text3:       #8A9A8A;
+      --red:         #E53E3E;
+      --red-light:   rgba(229,62,62,0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 2rem;
+      max-width: 340px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    }
+    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+    p {
+      font-size: 0.85rem;
+      color: var(--text3);
+      line-height: 1.55;
+      margin-bottom: 1.5rem;
+    }
+    .btn {
+      width: 100%;
+      padding: 11px;
+      background: var(--green);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: var(--green-dark); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .status {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      display: none;
+    }
+    .status.ok      { background: var(--green-light); color: var(--green-dark); display: block; }
+    .status.denied  { background: var(--red-light); color: var(--red); display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🎤</div>
+    <h2>Permitir Microfone</h2>
+    <p>
+      A Lexie precisa acessar seu microfone para gravar a sua voz durante a consulta.
+      Clique no botão abaixo e depois em <strong>"Permitir"</strong> no diálogo do Chrome.
+    </p>
+    <button class="btn" id="btn-allow">Conceder acesso ao microfone</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <script src="mic-permission.js"></script>
+</body>
+</html>

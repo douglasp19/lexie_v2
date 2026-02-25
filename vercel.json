@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path":     "/api/webhooks/cleanup",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

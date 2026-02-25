@@ -1,0 +1,318 @@
+<!-- @route apps/extension/popup.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lexie</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green:       #4CAF50;
+      --green-dark:  #388E3C;
+      --green-light: #E8F5E9;
+      --olive:       #6B8E23;
+      --orange:      #F4A261;
+      --gold-light:  rgba(233,196,106,0.15);
+      --bg:          #FAFAF7;
+      --surface2:    #F5F5F0;
+      --border:      #E8E8E0;
+      --text:        #1A1F1A;
+      --text2:       #4A5A4A;
+      --text3:       #8A9A8A;
+      --red:         #E53E3E;
+      --red-light:   rgba(229,62,62,0.08);
+      --purple:      #7C3AED;
+      --purple-light:rgba(124,58,237,0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      width: 288px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: white;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 700; color: var(--green); }
+    .logo em { color: var(--olive); font-style: italic; }
+
+    .header-right { display: flex; align-items: center; gap: 6px; }
+
+    .test-badge {
+      font-size: 0.55rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 99px;
+      background: var(--purple-light);
+      color: var(--purple);
+      border: 1px solid rgba(124,58,237,0.2);
+    }
+
+    .status-badge {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 99px;
+      transition: all 0.3s;
+    }
+    .badge-idle      { background: var(--surface2); color: var(--text3); }
+    .badge-recording { background: var(--red-light); color: var(--red); animation: blink 1.4s infinite; }
+    .badge-uploading { background: rgba(244,162,97,0.15); color: #C26A2A; }
+    .badge-done      { background: var(--green-light); color: var(--green-dark); }
+    .badge-error     { background: rgba(229,62,62,0.12); color: var(--red); }
+
+    @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+
+    /* ── Body ── */
+    .body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── Field ── */
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field-label {
+      font-size: 0.65rem; font-weight: 700;
+      color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em;
+    }
+    .field-input {
+      padding: 7px 10px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 0.8rem; font-family: 'DM Mono', monospace;
+      color: var(--text); background: white;
+      transition: border-color 0.2s; width: 100%;
+    }
+    .field-input:focus { outline: none; border-color: var(--green); }
+    .field-hint { font-size: 0.67rem; color: var(--text3); line-height: 1.4; }
+    .field-select {
+      padding: 7px 10px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 0.82rem; color: var(--text);
+      background: white; font-family: 'DM Sans', sans-serif;
+      cursor: pointer; transition: border-color 0.2s;
+    }
+    .field-select:focus { outline: none; border-color: var(--green); }
+
+    /* ── Timer ── */
+    .timer-block {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: var(--red-light);
+      border: 1px solid rgba(229,62,62,0.2); border-radius: 8px;
+    }
+    .timer-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red); animation: blink 1s infinite; flex-shrink: 0;
+    }
+    .timer-time {
+      font-family: 'DM Mono', monospace; font-size: 1.3rem;
+      font-weight: 600; color: var(--red); letter-spacing: 0.05em;
+    }
+    .timer-meta { display: flex; flex-direction: column; margin-left: auto; text-align: right; }
+    .timer-platform { font-size: 0.67rem; color: #C53030; font-weight: 600; }
+    .timer-channels {
+      display: flex; align-items: center; gap: 4px;
+      justify-content: flex-end; margin-top: 3px;
+    }
+    .channel-pill {
+      font-size: 0.58rem; font-weight: 700; padding: 1px 5px;
+      border-radius: 99px; letter-spacing: 0.05em;
+    }
+    .pill-tab { background: rgba(76,175,80,0.15); color: var(--green-dark); }
+    .pill-mic { background: var(--purple-light); color: var(--purple); }
+
+    /* ── Progress ── */
+    .progress-block {
+      background: var(--surface2); border-radius: 8px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .progress-label {
+      font-size: 0.75rem; font-weight: 600; color: var(--text2);
+      display: flex; justify-content: space-between;
+    }
+    .progress-pct { color: var(--green-dark); font-family: 'DM Mono', monospace; }
+    .progress-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-fill  { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.4s ease; width: 0%; }
+    .progress-sub   { font-size: 0.67rem; color: var(--text3); }
+
+    /* ── Done ── */
+    .done-block {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: var(--green-light);
+      border: 1px solid rgba(76,175,80,0.2); border-radius: 8px;
+    }
+    .done-icon { font-size: 1.1rem; }
+    .done-text { font-size: 0.8rem; font-weight: 600; color: var(--green-dark); }
+    .done-sub  { font-size: 0.67rem; color: var(--olive); margin-top: 2px; line-height: 1.4; }
+
+    /* ── Error ── */
+    .error-block {
+      padding: 10px 12px;
+      background: rgba(229,62,62,0.06);
+      border: 1px solid rgba(229,62,62,0.2); border-radius: 8px;
+    }
+    .error-title { font-size: 0.78rem; font-weight: 700; color: var(--red); margin-bottom: 3px; }
+    .error-msg   { font-size: 0.72rem; color: #C53030; line-height: 1.4; }
+
+    /* ── Retention ── */
+    .retention {
+      display: flex; align-items: flex-start; gap: 6px;
+      padding: 8px 10px;
+      background: var(--gold-light);
+      border: 1px solid rgba(233,196,106,0.35); border-radius: 8px;
+      font-size: 0.68rem; color: #8B6914; line-height: 1.45;
+    }
+    .retention-icon { flex-shrink: 0; font-size: 0.75rem; margin-top: 1px; }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%; padding: 10px; border-radius: 8px;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer;
+      font-family: 'DM Sans', sans-serif; transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center;
+      gap: 6px; border: none;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-start {
+      background: var(--green); color: white;
+      box-shadow: 0 3px 10px rgba(76,175,80,0.3);
+    }
+    .btn-start:hover:not(:disabled) { background: var(--green-dark); transform: translateY(-1px); }
+
+    .btn-stop {
+      background: rgba(244,162,97,0.1); color: var(--orange);
+      border: 1.5px solid var(--orange);
+    }
+    .btn-stop:hover:not(:disabled) { background: rgba(244,162,97,0.2); }
+
+    .btn-reset {
+      background: var(--surface2); color: var(--text2);
+      border: 1px solid var(--border); font-size: 0.82rem; padding: 9px;
+    }
+    .btn-reset:hover:not(:disabled) { border-color: var(--green); color: var(--green-dark); }
+
+    /* ── Footer ── */
+    .footer { text-align: center; padding: 0 14px 12px; font-size: 0.7rem; }
+    .footer a { color: var(--green); text-decoration: none; font-weight: 500; }
+    .footer a:hover { text-decoration: underline; }
+
+    /* ── Mic denied notice ── */
+    .mic-denied {
+      padding: 8px 10px;
+      background: rgba(229,62,62,0.06);
+      border: 1px solid rgba(229,62,62,0.2);
+      border-radius: 8px;
+      font-size: 0.68rem;
+      color: #C53030;
+      line-height: 1.45;
+    }
+    .mic-denied strong { font-weight: 700; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <span class="logo">Lexi<em>e</em></span>
+    <div class="header-right">
+      <span id="test-badge" class="test-badge hidden">TEST</span>
+      <span id="status-badge" class="status-badge badge-idle">Parado</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- IDLE -->
+    <div id="section-setup" class="field">
+      <div class="field-label">ID da Sessão</div>
+      <input id="session-id-input" class="field-input" type="text" placeholder="Cole o ID da consulta…" />
+      <div class="field-hint">Abra a sessão na plataforma Lexie e copie o ID antes de iniciar.</div>
+    </div>
+
+    <div id="section-tab" class="field hidden">
+      <div class="field-label">Aba para capturar</div>
+      <select id="tab-select" class="field-select">
+        <option value="">Carregando abas…</option>
+      </select>
+    </div>
+
+    <!-- RECORDING -->
+    <div id="section-timer" class="timer-block hidden">
+      <div class="timer-dot"></div>
+      <span id="timer-display" class="timer-time">00:00</span>
+      <div class="timer-meta">
+        <span id="timer-platform" class="timer-platform">—</span>
+        <div class="timer-channels">
+          <span class="channel-pill pill-tab">ABA</span>
+          <span class="channel-pill pill-mic">MIC</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- UPLOADING -->
+    <div id="section-progress" class="progress-block hidden">
+      <div class="progress-label">
+        <span>Salvando gravação…</span>
+        <span id="progress-pct" class="progress-pct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <div class="progress-sub">Transmitido com TLS · excluído do servidor em 24h</div>
+    </div>
+
+    <!-- DONE -->
+    <div id="section-done" class="done-block hidden">
+      <span class="done-icon">✓</span>
+      <div>
+        <div class="done-text">Gravação salva com sucesso!</div>
+        <div id="done-sub" class="done-sub">—</div>
+      </div>
+    </div>
+
+    <!-- ERROR -->
+    <div id="section-error" class="error-block hidden">
+      <div class="error-title">⚠ Erro na gravação</div>
+      <div id="error-msg" class="error-msg"></div>
+    </div>
+
+    <!-- Mic negado: aparece só quando status='denied' -->
+    <div id="mic-denied-notice" class="mic-denied hidden">
+      🎤 Microfone bloqueado. Para habilitar: clique no <strong>🔒 cadeado</strong> na barra do Chrome → Microfone → Permitir → recarregue a extensão.
+    </div>
+
+    <!-- Sempre visível -->
+    <div class="retention">
+      <span class="retention-icon">🔒</span>
+      Áudio excluído automaticamente do servidor em <strong>24h</strong> após o envio.
+    </div>
+
+    <button id="btn-start" class="btn btn-start">🎙 Iniciar Gravação</button>
+    <button id="btn-stop"  class="btn btn-stop  hidden">⏹ Parar e Salvar</button>
+    <button id="btn-reset" class="btn btn-reset hidden">↺ Nova Gravação</button>
+
+  </div>
+
+  <div class="footer">
+    <a id="open-platform-link" href="https://lexie.app" target="_blank">Abrir plataforma Lexie ↗</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

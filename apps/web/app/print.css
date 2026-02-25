@@ -1,0 +1,13 @@
+/* @route apps/web/app/print.css */
+/* Estilos para impressão do relatório */
+
+@media print {
+  nav, .btn-primary, .btn-secondary, .report-sidebar,
+  [href], button { display: none !important; }
+
+  body { background: white; color: black; font-size: 11pt; }
+
+  .card { box-shadow: none !important; border: none !important; }
+
+  h1 { font-size: 16pt; }
+}
