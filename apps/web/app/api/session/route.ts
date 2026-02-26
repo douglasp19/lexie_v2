@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-    const { patient_name, session_type, notes, anchor_words } = await req.json()
+    const { patient_name, session_type, notes, anchor_words, patient_id } = await req.json()
 
     if (!patient_name?.trim()) {
       return NextResponse.json({ error: 'patient_name é obrigatório' }, { status: 400 })
@@ -33,8 +33,9 @@ export async function POST(req: NextRequest) {
       user_id:      userId,
       patient_name: patient_name.trim(),
       session_type: session_type ?? 'online',
-      notes:        notes ?? null,
+      notes:        notes        ?? null,
       anchor_words: anchor_words ?? [],
+      patient_id:   patient_id   ?? undefined,
     })
 
     return NextResponse.json({ session }, { status: 201 })

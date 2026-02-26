@@ -5,16 +5,9 @@ import { getReport } from '@/lib/db/queries/reports'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ReportActions } from './report-actions'
+import { ReportEditor } from './report-editor'
 
 export const dynamic = 'force-dynamic'
-
-const SECTIONS = [
-  { key: 'queixa',          label: 'Queixa Principal',    icon: '💬' },
-  { key: 'historico',       label: 'Histórico',           icon: '📋' },
-  { key: 'dados',           label: 'Dados Objetivos',     icon: '📊' },
-  { key: 'metas',           label: 'Metas Terapêuticas',  icon: '🎯' },
-  { key: 'proximos_passos', label: 'Próximos Passos',     icon: '▶' },
-] as const
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -62,33 +55,27 @@ export default async function ReportPage({ params }: Params) {
         {/* Report card */}
         <div className="card" style={{ padding: '1.5rem', boxShadow: 'var(--shadow-md)' }}>
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}>
+          <div style={{
+            display:       'flex',
+            alignItems:    'flex-start',
+            justifyContent:'space-between',
+            paddingBottom: '1rem',
+            borderBottom:  '1px solid var(--border)',
+            marginBottom:  '1rem',
+          }}>
             <div>
               <h1 style={{ fontSize: '1.3rem', marginBottom: '0.25rem' }}>{session.patient_name}</h1>
               <div style={{ fontSize: '0.77rem', color: 'var(--text3)' }}>
-                {new Date(report.generated_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })} · Gerado por IA
+                {new Date(report.generated_at).toLocaleDateString('pt-BR', {
+                  day: '2-digit', month: 'long', year: 'numeric',
+                })} · Gerado por IA
               </div>
             </div>
             <ReportActions sessionId={id} patientName={session.patient_name} content={content} />
           </div>
 
-          {/* Sections */}
-          <div>
-            {SECTIONS.map((sec, i) => (
-              <div key={sec.key} style={{
-                padding:      '0.925rem 0',
-                borderBottom: i < SECTIONS.length - 1 ? '1px solid var(--border)' : 'none',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
-                  <span style={{ fontSize: '0.9rem' }}>{sec.icon}</span>
-                  <span className="section-label" style={{ flex: 1 }}>{sec.label}</span>
-                </div>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text)', lineHeight: 1.7 }}>
-                  {content[sec.key] || <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Não registrado</span>}
-                </p>
-              </div>
-            ))}
-          </div>
+          {/* Seções editáveis */}
+          <ReportEditor sessionId={id} initial={content} />
         </div>
 
         {/* Sidebar */}

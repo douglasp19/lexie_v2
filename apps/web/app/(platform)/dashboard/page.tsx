@@ -2,16 +2,9 @@
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { listSessions } from '@/lib/db/queries/sessions'
 import Link from 'next/link'
+import { SessionList } from './session-list'
 
 export const dynamic = 'force-dynamic'
-
-function initials(name: string) {
-  return name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
-}
 
 function greeting() {
   const h = new Date().getHours()
@@ -24,22 +17,18 @@ function todayFmt() {
   return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  done:       'Concluída',
-  processing: 'Processando',
-  draft:      'Rascunho',
-  error:      'Erro',
-}
-
 export default async function DashboardPage() {
   const { userId } = await auth()
   const user       = await currentUser()
-  const sessions   = await listSessions(userId!).catch(() => [])
+  const allSessions = await listSessions(userId!).catch(() => [])
+
+  // Limita a 20 consultas mais recentes para exibição
+  const sessions = allSessions.slice(0, 20)
 
   const displayName = user?.firstName ?? 'Dra.'
-  const total     = sessions.length
-  const done      = sessions.filter(s => s.status === 'done').length
-  const thisMonth = sessions.filter(s => {
+  const total     = allSessions.length
+  const done      = allSessions.filter(s => s.status === 'done').length
+  const thisMonth = allSessions.filter(s => {
     const d = new Date(s.created_at), n = new Date()
     return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear()
   }).length
@@ -58,22 +47,13 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.875rem', marginBottom: '1.75rem' }}>
-        <StatCard num={total}     label="Total de consultas"   trend={thisMonth > 0 ? `+${thisMonth} este mês` : undefined} />
-        <StatCard num={done}      label="Relatórios gerados"   trend={total > 0 ? `${Math.round(done / total * 100)}% concluídas` : undefined} />
+        <StatCard num={total}     label="Total de consultas"  trend={thisMonth > 0 ? `+${thisMonth} este mês` : undefined} />
+        <StatCard num={done}      label="Relatórios gerados"  trend={total > 0 ? `${Math.round(done / total * 100)}% concluídas` : undefined} />
         <StatCard num={thisMonth} label="Consultas este mês" />
       </div>
 
-      {/* List header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text)' }}>Consultas recentes</span>
-        {sessions.length > 0 && (
-          <Link href="/session/new" style={{ fontSize: '0.78rem', color: 'var(--green)', fontWeight: 500, textDecoration: 'none' }}>
-            + Nova consulta
-          </Link>
-        )}
-      </div>
-
-      {sessions.length === 0 ? (
+      {/* Lista vazia */}
+      {allSessions.length === 0 ? (
         <div className="card empty-state" style={{ padding: '3rem' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
           <h3>Nenhuma consulta ainda</h3>
@@ -83,40 +63,7 @@ export default async function DashboardPage() {
           </Link>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-          {sessions.map(s => (
-            <Link key={s.id} href={`/session/${s.id}`} style={{ textDecoration: 'none' }}>
-              <div className="card sess-row" style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '0.875rem 1.1rem', cursor: 'pointer',
-                borderLeft: s.status === 'done' ? '3px solid var(--green)' : '3px solid transparent',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: 'var(--green-light)', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center',
-                    fontSize: '0.74rem', fontWeight: 700, color: 'var(--green-dark)', flexShrink: 0,
-                  }}>
-                    {initials(s.patient_name)}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text)' }}>{s.patient_name}</div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text3)', marginTop: '0.1rem' }}>{fmtDate(s.created_at)}</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.3rem' }}>
-                  <span className={`pill pill-${s.status === 'processing' ? 'processing' : s.status}`}>
-                    {STATUS_LABEL[s.status] ?? s.status}
-                  </span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text3)' }}>
-                    {s.session_type === 'online' ? '🌐 Online' : '🏥 Presencial'}
-                  </span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <SessionList sessions={sessions} />
       )}
     </div>
   )

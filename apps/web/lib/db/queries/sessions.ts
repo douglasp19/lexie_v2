@@ -7,6 +7,7 @@ export type SessionType   = 'online' | 'presencial'
 export interface Session {
   id:           string
   user_id:      string
+  patient_id:   string | null   // ← vínculo com a tabela patients
   patient_name: string
   session_type: SessionType
   notes:        string | null
@@ -22,6 +23,7 @@ export interface CreateSessionInput {
   session_type:  SessionType
   notes?:        string
   anchor_words?: string[]
+  patient_id?:   string        // ← opcional: vincula ao paciente cadastrado
 }
 
 export async function createSession(input: CreateSessionInput): Promise<Session> {
@@ -31,8 +33,9 @@ export async function createSession(input: CreateSessionInput): Promise<Session>
       user_id:      input.user_id,
       patient_name: input.patient_name,
       session_type: input.session_type,
-      notes:        input.notes ?? null,
+      notes:        input.notes        ?? null,
       anchor_words: input.anchor_words ?? [],
+      patient_id:   input.patient_id   ?? null,
       status:       'draft',
     })
     .select()
@@ -68,7 +71,7 @@ export async function getSession(id: string, userId: string): Promise<Session> {
 export async function updateSession(
   id: string,
   userId: string,
-  patch: Partial<Pick<Session, 'notes' | 'anchor_words' | 'status' | 'patient_name' | 'session_type'>>
+  patch: Partial<Pick<Session, 'notes' | 'anchor_words' | 'status' | 'patient_name' | 'session_type' | 'patient_id'>>
 ): Promise<Session> {
   const { data, error } = await supabase
     .from('sessions')
