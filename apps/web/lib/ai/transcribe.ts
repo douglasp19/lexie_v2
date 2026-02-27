@@ -73,12 +73,10 @@ async function transcribeChunk(
   try {
     console.log(`[transcribe] Parte ${part} tentativa ${attempt + 1}/${MAX_ATTEMPTS} - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB`)
 
-    const arrayBuffer = buffer.buffer.slice(
-      buffer.byteOffset,
-      buffer.byteOffset + buffer.byteLength
-    )
+    const uint8 = new Uint8Array(buffer)
 
-    const file = new File([arrayBuffer], filename, { type: mimeType })
+    const file = new File([uint8], filename, { type: mimeType })
+    
     const res = await groq.audio.transcriptions.create({
       file,
       model: WHISPER_MODEL,
