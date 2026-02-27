@@ -68,7 +68,7 @@ export async function updateAudioUpload(
     where upload_id = $${values.length + 1}
   `
 
-  await sql(query, [...values, uploadId])
+  await sql.query(query, [...values, uploadId])
 }
 
 export async function getExpiredUploads(): Promise<AudioUpload[]> {
