@@ -26,7 +26,7 @@ export async function assembleChunks(
   mimeType: string,
   sessionId: string
 ): Promise<string> {
-  const chunksPrefix = `chunks/${uploadId}/`;
+  const chunksPrefix = `audio/${uploadId}/`;
   const finalPath = `audio/${sessionId}/${uploadId}.bin`;
 
   const buffers: Buffer[] = [];

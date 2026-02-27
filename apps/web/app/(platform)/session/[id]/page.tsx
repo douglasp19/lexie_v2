@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+
 interface Session {
   id: string; patient_name: string; session_type: string
   notes: string | null; anchor_words: string[]; status: string; created_at: string
