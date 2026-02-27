@@ -40,16 +40,21 @@ export async function getAudioUpload(sessionId: string): Promise<AudioUpload | n
 
 export async function updateAudioUpload(
   uploadId: string,
-  patch: Partial<Pick<AudioUpload, 'status' | 'storage_path' | 'transcription' | 'transcription_segments'>>
-): Promise<void> {
-  const vals: Record<string, any> = {}
-  if (patch.status                 !== undefined) vals.status                 = patch.status
-  if (patch.storage_path           !== undefined) vals.storage_path           = patch.storage_path
-  if (patch.transcription          !== undefined) vals.transcription          = patch.transcription
-  if (patch.transcription_segments !== undefined) vals.transcription_segments = JSON.stringify(patch.transcription_segments)
+  vals: Record<string, any>
+) {
+  const entries = Object.entries(vals)
 
-  if (Object.keys(vals).length === 0) return
-  await sql`update audio_uploads set ${sql(vals)} where upload_id = ${uploadId}`
+  if (entries.length === 0) return
+
+  const sets = entries.map(
+    ([key], i) => sql`${sql.identifier([key])} = ${entries[i][1]}`
+  )
+
+  await sql`
+    update audio_uploads
+    set ${sql.join(sets, sql`, `)}
+    where upload_id = ${uploadId}
+  `
 }
 
 export async function getExpiredUploads(): Promise<AudioUpload[]> {
