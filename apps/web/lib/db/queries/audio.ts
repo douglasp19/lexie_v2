@@ -3,24 +3,24 @@ import { sql } from '../client'
 import type { TranscriptionSegment } from '@/lib/ai/transcribe'
 
 export interface AudioUpload {
-  upload_id:              string
-  session_id:             string
-  user_id:                string
-  status:                 string
-  storage_path:           string | null
-  mime_type:              string | null
-  total_bytes:            number | null
-  transcription:          string | null
+  upload_id: string
+  session_id: string
+  user_id: string
+  status: string
+  storage_path: string | null
+  mime_type: string | null
+  total_bytes: number | null
+  transcription: string | null
   transcription_segments: TranscriptionSegment[] | null
-  expires_at:             string
-  created_at:             string
-  updated_at:             string
+  expires_at: string
+  created_at: string
+  updated_at: string
 }
 
 export async function createAudioUpload(input: {
-  sessionId:  string
-  userId:     string
-  mimeType:   string
+  sessionId: string
+  userId: string
+  mimeType: string
   totalBytes: number
 }): Promise<AudioUpload> {
   const rows = await sql`
@@ -42,19 +42,33 @@ export async function updateAudioUpload(
   uploadId: string,
   vals: Record<string, any>
 ) {
-  const entries = Object.entries(vals)
+  const allowedColumns = [
+    "status",
+    "error",
+    "transcript",
+    "duration",
+    "completed_at",
+  ] as const
+
+  const entries = Object.entries(vals).filter(([key]) =>
+    allowedColumns.includes(key as (typeof allowedColumns)[number])
+  )
 
   if (entries.length === 0) return
 
-  const sets = entries.map(
-    ([key], i) => sql`${sql.identifier([key])} = ${entries[i][1]}`
+  const setClauses = entries.map(
+    ([key], i) => `"${key}" = $${i + 1}`
   )
 
-  await sql`
+  const values = entries.map(([, value]) => value)
+
+  const query = `
     update audio_uploads
-    set ${sql.join(sets, sql`, `)}
-    where upload_id = ${uploadId}
+    set ${setClauses.join(", ")}
+    where upload_id = $${values.length + 1}
   `
+
+  await sql(query, [...values, uploadId])
 }
 
 export async function getExpiredUploads(): Promise<AudioUpload[]> {
