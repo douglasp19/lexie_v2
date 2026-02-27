@@ -1,82 +1,70 @@
-// @route apps/web/lib/storage/audio.ts
-// npm install @vercel/blob
-import { put, del, list, download } from '@vercel/blob'
+// lib/storage/audio.ts
+import { put, del, list, head } from "@vercel/blob";
 
-// ─── Upload de chunk individual ───────────────────────────────────────────────
-
-export async function uploadChunk(
-  uploadId:   string,
-  chunkIndex: number,
-  data:       Buffer
-): Promise<void> {
-  const path = `chunks/${uploadId}/chunk_${String(chunkIndex).padStart(5, '0')}`
-
-  await put(path, data, {
-    access:          'private',
-    contentType:     'audio/webm',
-    addRandomSuffix: false,
-  })
+/**
+ * Upload de um chunk individual
+ * path exemplo: chunks/{uploadId}/chunk-0
+ */
+export async function uploadAudioChunk(
+  path: string,
+  buffer: Buffer,
+  contentType = "application/octet-stream"
+) {
+  return await put(path, buffer, {
+    access: "private",
+    contentType,
+  });
 }
 
-// ─── Montar arquivo final juntando todos os chunks ────────────────────────────
-
+/**
+ * Monta o áudio final a partir dos chunks
+ * Retorna o path do arquivo final
+ */
 export async function assembleChunks(
-  uploadId:    string,
+  uploadId: string,
   totalChunks: number,
-  mimeType:    string,
-  sessionId:   string
+  mimeType: string,
+  sessionId: string
 ): Promise<string> {
+  const chunksPrefix = `chunks/${uploadId}/`;
+  const finalPath = `audio/${sessionId}/${uploadId}.bin`;
 
-  // Lista todos os chunks deste upload pelo prefix
-  const { blobs } = await list({ prefix: `chunks/${uploadId}/`, mode: 'folded' })
+  const buffers: Buffer[] = [];
 
-  // folded retorna a pasta — usa expanded para pegar os arquivos
-  const { blobs: files } = await list({ prefix: `chunks/${uploadId}/` })
-
-  if (files.length !== totalChunks) {
-    throw new Error(`assembleChunks: esperado ${totalChunks} chunks, encontrado ${files.length}`)
+  for (let i = 0; i < totalChunks; i++) {
+    const chunkPath = `${chunksPrefix}chunk-${i}`;
+    const res = await fetch((await head(chunkPath)).url);
+    buffers.push(Buffer.from(await res.arrayBuffer()));
   }
 
-  // Ordena pelo pathname (chunk_00000, chunk_00001, ...)
-  const sorted = files.sort((a, b) => a.pathname.localeCompare(b.pathname))
+  const finalBuffer = Buffer.concat(buffers);
 
-  // Baixa cada chunk usando o SDK (suporta store privado)
-  const buffers: Buffer[] = []
-  for (const blob of sorted) {
-    const res = await download(blob.url)
-    if (!res.ok) throw new Error(`assembleChunks: download falhou para ${blob.pathname} (${res.status})`)
-    buffers.push(Buffer.from(await res.arrayBuffer()))
-  }
+  await put(finalPath, finalBuffer, {
+    access: "private",
+    contentType: mimeType,
+  });
 
-  const combined  = Buffer.concat(buffers)
-  const ext       = mimeType.includes('ogg') ? 'ogg' : 'webm'
-  const finalPath = `sessions/${sessionId}/${uploadId}.${ext}`
-  const safeMime  = mimeType.includes('ogg') ? 'audio/ogg' : 'audio/webm'
+  // limpa chunks
+  await deleteAudio(chunksPrefix);
 
-  // Upload do arquivo montado
-  const final = await put(finalPath, combined, {
-    access:          'private',
-    contentType:     safeMime,
-    addRandomSuffix: false,
-  })
-
-  // Remove chunks temporários (best-effort)
-  await del(sorted.map(b => b.url)).catch(() => {})
-
-  return final.url
+  return finalPath;
 }
 
-// ─── Download para transcrição ────────────────────────────────────────────────
-
-export async function downloadAudio(storagePath: string): Promise<Buffer> {
-  // Usa o SDK para download autenticado (store privado)
-  const res = await download(storagePath)
-  if (!res.ok) throw new Error(`downloadAudio: ${res.status} — ${storagePath}`)
-  return Buffer.from(await res.arrayBuffer())
+/**
+ * Faz download do áudio final e retorna Buffer
+ */
+export async function downloadAudio(path: string): Promise<Buffer> {
+  const res = await fetch((await head(path)).url);
+  return Buffer.from(await res.arrayBuffer());
 }
 
-// ─── Deletar arquivo de áudio ─────────────────────────────────────────────────
+/**
+ * Deleta um arquivo OU um prefixo inteiro
+ */
+export async function deleteAudio(pathOrPrefix: string) {
+  const { blobs } = await list({ prefix: pathOrPrefix });
 
-export async function deleteAudio(storagePath: string): Promise<void> {
-  await del(storagePath)
+  await Promise.all(
+    blobs.map((blob) => del(blob.url))
+  );
 }
