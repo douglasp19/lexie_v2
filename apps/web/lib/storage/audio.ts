@@ -1,79 +1,81 @@
 // @route apps/web/lib/storage/audio.ts
-import { supabase } from '../db/client'
-
-const BUCKET = 'audio-temp'
+// npm install @vercel/blob
+import { put, del, list } from '@vercel/blob'
 
 // ─── Upload de chunk individual ───────────────────────────────────────────────
 
 export async function uploadChunk(
-  uploadId: string,
+  uploadId:   string,
   chunkIndex: number,
-  data: Buffer
+  data:       Buffer
 ): Promise<void> {
   const path = `chunks/${uploadId}/chunk_${String(chunkIndex).padStart(5, '0')}`
 
-  // Supabase não aceita application/octet-stream — usa audio/webm para chunks
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, data, { upsert: true, contentType: 'audio/webm' })
-
-  if (error) throw new Error(`uploadChunk[${chunkIndex}]: ${error.message}`)
+  await put(path, data, {
+    access:          'public',  // único modo disponível no Vercel Blob
+    contentType:     'audio/webm',
+    addRandomSuffix: false,     // path previsível para poder listar por prefix
+  })
 }
 
 // ─── Montar arquivo final juntando todos os chunks ────────────────────────────
 
 export async function assembleChunks(
-  uploadId: string,
+  uploadId:    string,
   totalChunks: number,
-  mimeType: string,
-  sessionId: string
+  mimeType:    string,
+  sessionId:   string
 ): Promise<string> {
+
+  // Lista todos os chunks deste upload pelo prefix
+  const { blobs } = await list({ prefix: `chunks/${uploadId}/` })
+
+  if (blobs.length !== totalChunks) {
+    throw new Error(`assembleChunks: esperado ${totalChunks} chunks, encontrado ${blobs.length}`)
+  }
+
+  // Ordena pelo nome (chunk_00000, chunk_00001, ...)
+  const sorted = blobs.sort((a, b) => a.pathname.localeCompare(b.pathname))
+
+  // Baixa cada chunk e monta o buffer
   const buffers: Buffer[] = []
-
-  for (let i = 0; i < totalChunks; i++) {
-    const path = `chunks/${uploadId}/chunk_${String(i).padStart(5, '0')}`
-
-    const { data, error } = await supabase.storage.from(BUCKET).download(path)
-    if (error) throw new Error(`assembleChunks - download chunk ${i}: ${error.message}`)
-
-    buffers.push(Buffer.from(await (data as Blob).arrayBuffer()))
+  for (const blob of sorted) {
+    const res = await fetch(blob.url)
+    if (!res.ok) throw new Error(`assembleChunks: download falhou para ${blob.pathname} (${res.status})`)
+    buffers.push(Buffer.from(await res.arrayBuffer()))
   }
 
   const combined  = Buffer.concat(buffers)
   const ext       = mimeType.includes('ogg') ? 'ogg' : 'webm'
   const finalPath = `sessions/${sessionId}/${uploadId}.${ext}`
+  const safeMime  = mimeType.includes('ogg') ? 'audio/ogg' : 'audio/webm'
 
-  // Normaliza mime type para garantir compatibilidade com Supabase
-  // Supabase só aceita audio/webm e audio/ogg — normaliza sempre
-  const safeMime = mimeType.includes('ogg') ? 'audio/ogg' : 'audio/webm'
+  // Upload do arquivo montado
+  const final = await put(finalPath, combined, {
+    access:          'public',
+    contentType:     safeMime,
+    addRandomSuffix: false,
+  })
 
-  const { error: upErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(finalPath, combined, { contentType: safeMime, upsert: true })
+  // Remove chunks temporários (best-effort)
+  const urlsToDelete = sorted.map(b => b.url)
+  await del(urlsToDelete).catch(() => {})
 
-  if (upErr) throw new Error(`assembleChunks - upload final: ${upErr.message}`)
-
-  // Limpa chunks temporários (best-effort)
-  const paths = Array.from(
-    { length: totalChunks },
-    (_, i) => `chunks/${uploadId}/chunk_${String(i).padStart(5, '0')}`
-  )
-  await supabase.storage.from(BUCKET).remove(paths).catch(() => {})
-
-  return finalPath
+  // Retorna a URL pública (salva como storage_path no banco)
+  return final.url
 }
 
 // ─── Download para transcrição ────────────────────────────────────────────────
 
 export async function downloadAudio(storagePath: string): Promise<Buffer> {
-  const { data, error } = await supabase.storage.from(BUCKET).download(storagePath)
-  if (error) throw new Error(`downloadAudio: ${error.message}`)
-  return Buffer.from(await (data as Blob).arrayBuffer())
+  // storagePath é a URL pública do Vercel Blob
+  const res = await fetch(storagePath)
+  if (!res.ok) throw new Error(`downloadAudio: ${res.status} — ${storagePath}`)
+  return Buffer.from(await res.arrayBuffer())
 }
 
 // ─── Deletar arquivo de áudio ─────────────────────────────────────────────────
 
 export async function deleteAudio(storagePath: string): Promise<void> {
-  const { error } = await supabase.storage.from(BUCKET).remove([storagePath])
-  if (error) throw new Error(`deleteAudio: ${error.message}`)
+  await del(storagePath)
 }

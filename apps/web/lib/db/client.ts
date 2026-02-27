@@ -1,9 +1,7 @@
 // @route apps/web/lib/db/client.ts
-import { createClient } from '@supabase/supabase-js'
+// npm install @neondatabase/serverless
 
-// Usa service_role — nunca expor no client-side
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-)
+import { neon } from '@neondatabase/serverless'
+
+// DATABASE_URL vem do painel do Neon → Connection string → Pooled connection
+export const sql = neon(process.env.DATABASE_URL!)

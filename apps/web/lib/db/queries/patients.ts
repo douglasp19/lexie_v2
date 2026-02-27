@@ -1,104 +1,59 @@
 // @route apps/web/lib/db/queries/patients.ts
-import { supabase } from '../client'
+import { sql } from '../client'
 
 export interface Patient {
-  id:         string
-  user_id:    string
-  name:       string
-  email:      string | null
-  phone:      string | null
-  birth_date: string | null
-  anamnesis:  string | null
-  goals:      string | null
-  notes:      string | null
-  created_at: string
-  updated_at: string
+  id: string; user_id: string; name: string; email: string | null
+  phone: string | null; birth_date: string | null; anamnesis: string | null
+  goals: string | null; notes: string | null; created_at: string; updated_at: string
 }
 
 export async function listPatients(userId: string): Promise<Patient[]> {
-  const { data, error } = await supabase
-    .from('patients')
-    .select('*')
-    .eq('user_id', userId)
-    .order('name', { ascending: true })
-
-  if (error) throw new Error(error.message)
-  return data ?? []
+  return sql`select * from patients where user_id = ${userId} order by name asc` as any
 }
 
-export async function searchPatients(userId: string, query: string): Promise<Patient[]> {
-  const { data, error } = await supabase
-    .from('patients')
-    .select('id, name, email, phone, birth_date')
-    .eq('user_id', userId)
-    .ilike('name', `%${query}%`)
-    .limit(10)
-
-  if (error) throw new Error(error.message)
-  return data ?? []
+export async function searchPatients(userId: string, q: string): Promise<Patient[]> {
+  return sql`
+    select * from patients
+    where user_id = ${userId} and name ilike ${'%' + q + '%'}
+    order by name asc limit 20` as any
 }
 
 export async function getPatient(id: string, userId: string): Promise<Patient | null> {
-  const { data, error } = await supabase
-    .from('patients')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (error) throw new Error(error.message)
-  return data
+  const rows = await sql`select * from patients where id = ${id} and user_id = ${userId} limit 1`
+  return (rows[0] as Patient) ?? null
 }
 
-export async function createPatient(
-  userId: string,
-  input: Partial<Omit<Patient, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
-): Promise<Patient> {
-  const { data, error } = await supabase
-    .from('patients')
-    .insert({ ...input, user_id: userId })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return data
+export async function createPatient(input: {
+  user_id: string; name: string; email?: string | null; phone?: string | null
+  birth_date?: string | null; anamnesis?: string | null; goals?: string | null; notes?: string | null
+}): Promise<Patient> {
+  const rows = await sql`
+    insert into patients (user_id, name, email, phone, birth_date, anamnesis, goals, notes)
+    values (${input.user_id}, ${input.name}, ${input.email ?? null}, ${input.phone ?? null},
+            ${input.birth_date ?? null}, ${input.anamnesis ?? null}, ${input.goals ?? null}, ${input.notes ?? null})
+    returning *`
+  return rows[0] as Patient
 }
 
 export async function updatePatient(
-  id: string,
-  userId: string,
-  input: Partial<Omit<Patient, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
+  id: string, userId: string,
+  patch: Partial<Omit<Patient, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
 ): Promise<Patient> {
-  const { data, error } = await supabase
-    .from('patients')
-    .update(input)
-    .eq('id', id)
-    .eq('user_id', userId)
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-  return data
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined)
+  if (entries.length === 0) return (await getPatient(id, userId))!
+  const vals = Object.fromEntries(entries)
+  const rows = await sql`update patients set ${sql(vals)} where id = ${id} and user_id = ${userId} returning *`
+  if (!rows[0]) throw new Error('Patient not found')
+  return rows[0] as Patient
 }
 
 export async function deletePatient(id: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('patients')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', userId)
-
-  if (error) throw new Error(error.message)
+  await sql`delete from patients where id = ${id} and user_id = ${userId}`
 }
 
 export async function getPatientSessions(patientId: string, userId: string) {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('id, patient_name, session_type, status, created_at')
-    .eq('patient_id', patientId)
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-
-  if (error) throw new Error(error.message)
-  return data ?? []
+  return sql`
+    select * from sessions
+    where patient_id = ${patientId} and user_id = ${userId}
+    order by created_at desc` as any
 }

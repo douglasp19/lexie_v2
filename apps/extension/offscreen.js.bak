@@ -42,17 +42,11 @@ function toBackground(type, payload = {}) {
 async function buildMixedStream(tabStream, micGranted = false) {
   audioContext = new AudioContext();
 
-  // ─ Passthrough via <audio> element
-  // audioContext.destination NÃO tem saída real em offscreen documents (MV3).
-  // A única forma de devolver o áudio ao usuário é tocar o stream num <audio>.
-  const passthroughEl = document.createElement('audio');
-  passthroughEl.srcObject = tabStream;
-  passthroughEl.play().catch(e =>
-    console.warn('[Lexie offscreen] Passthrough play falhou:', e)
-  );
-
-  // Fonte da aba (para gravação — separado do passthrough acima)
+  // Fonte da aba
   const tabSource = audioContext.createMediaStreamSource(tabStream);
+
+  // ─ Passthrough: aba continua saindo nos fones/caixa normalmente
+  tabSource.connect(audioContext.destination);
 
   // ─ Destino da gravação (stream que vai para o MediaRecorder)
   const mixDestination = audioContext.createMediaStreamDestination();
@@ -199,10 +193,7 @@ async function startRecording({ streamId, sessionId, micGranted = false }) {
 
   // 3. Iniciar MediaRecorder com o stream mixado
   const mimeType    = getBestMimeType();
-  mediaRecorder     = new MediaRecorder(mixedStream, {
-    ...(mimeType ? { mimeType } : {}),
-    audioBitsPerSecond: CONFIG.AUDIO_BITS_PER_SECOND, // 32 kbps — ideal pra voz
-  });
+  mediaRecorder     = new MediaRecorder(mixedStream, mimeType ? { mimeType } : {});
 
   mediaRecorder.ondataavailable = ({ data }) => {
     if (data?.size > 0) audioChunks.push(data);

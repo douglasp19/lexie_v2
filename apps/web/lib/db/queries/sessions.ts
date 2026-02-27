@@ -1,96 +1,57 @@
 // @route apps/web/lib/db/queries/sessions.ts
-import { supabase } from '../client'
+import { sql } from '../client'
 
 export type SessionStatus = 'draft' | 'processing' | 'done' | 'error'
 export type SessionType   = 'online' | 'presencial'
 
 export interface Session {
-  id:           string
-  user_id:      string
-  patient_id:   string | null   // ← vínculo com a tabela patients
-  patient_name: string
-  session_type: SessionType
-  notes:        string | null
-  anchor_words: string[]
-  status:       SessionStatus
-  created_at:   string
-  updated_at:   string
+  id: string; user_id: string; patient_id: string | null
+  patient_name: string; session_type: SessionType
+  notes: string | null; anchor_words: string[]
+  status: SessionStatus; created_at: string; updated_at: string
 }
 
 export interface CreateSessionInput {
-  user_id:       string
-  patient_name:  string
-  session_type:  SessionType
-  notes?:        string
-  anchor_words?: string[]
-  patient_id?:   string        // ← opcional: vincula ao paciente cadastrado
+  user_id: string; patient_name: string; session_type: SessionType
+  notes?: string | null; anchor_words?: string[]; patient_id?: string
 }
 
 export async function createSession(input: CreateSessionInput): Promise<Session> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .insert({
-      user_id:      input.user_id,
-      patient_name: input.patient_name,
-      session_type: input.session_type,
-      notes:        input.notes        ?? null,
-      anchor_words: input.anchor_words ?? [],
-      patient_id:   input.patient_id   ?? null,
-      status:       'draft',
-    })
-    .select()
-    .single()
-
-  if (error) throw new Error(`createSession: ${error.message}`)
-  return data as Session
+  const rows = await sql`
+    insert into sessions (user_id, patient_id, patient_name, session_type, notes, anchor_words, status)
+    values (${input.user_id}, ${input.patient_id ?? null}, ${input.patient_name},
+            ${input.session_type}, ${input.notes ?? null}, ${input.anchor_words ?? []}, 'draft')
+    returning *`
+  return rows[0] as Session
 }
 
 export async function listSessions(userId: string): Promise<Session[]> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-
-  if (error) throw new Error(`listSessions: ${error.message}`)
-  return (data ?? []) as Session[]
+  return sql`select * from sessions where user_id = ${userId} order by created_at desc` as any
 }
 
 export async function getSession(id: string, userId: string): Promise<Session> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', userId)
-    .single()
-
-  if (error) throw new Error(`getSession: ${error.message}`)
-  return data as Session
+  const rows = await sql`select * from sessions where id = ${id} and user_id = ${userId} limit 1`
+  if (!rows[0]) throw new Error('Session not found')
+  return rows[0] as Session
 }
 
 export async function updateSession(
-  id: string,
-  userId: string,
+  id: string, userId: string,
   patch: Partial<Pick<Session, 'notes' | 'anchor_words' | 'status' | 'patient_name' | 'session_type' | 'patient_id'>>
 ): Promise<Session> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .update(patch)
-    .eq('id', id)
-    .eq('user_id', userId)
-    .select()
-    .single()
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined)
+  if (entries.length === 0) return getSession(id, userId)
 
-  if (error) throw new Error(`updateSession: ${error.message}`)
-  return data as Session
+  // Monta SET dinâmico
+  const sets = entries.map(([k]) => `${k} = $${k}`).join(', ')
+  const vals = Object.fromEntries(entries)
+
+  const rows = await sql`
+    update sessions set ${sql(vals)} where id = ${id} and user_id = ${userId} returning *`
+  if (!rows[0]) throw new Error('Session not found')
+  return rows[0] as Session
 }
 
 export async function deleteSession(id: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('sessions')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', userId)
-
-  if (error) throw new Error(`deleteSession: ${error.message}`)
+  await sql`delete from sessions where id = ${id} and user_id = ${userId}`
 }

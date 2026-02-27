@@ -1,5 +1,5 @@
 // @route apps/web/lib/db/queries/reports.ts
-import { supabase } from '../client'
+import { sql } from '../client'
 
 export interface ReportContent {
   queixa:          string
@@ -12,6 +12,7 @@ export interface ReportContent {
 export interface Report {
   id:           string
   session_id:   string
+  user_id:      string
   content:      ReportContent
   ai_model:     string
   generated_at: string
@@ -19,30 +20,37 @@ export interface Report {
 }
 
 export async function getReport(sessionId: string): Promise<Report | null> {
-  const { data, error } = await supabase
-    .from('reports')
-    .select('*')
-    .eq('session_id', sessionId)
-    .maybeSingle()
-
-  if (error) throw new Error(`getReport: ${error.message}`)
-  return data as Report | null
+  const rows = await sql`select * from reports where session_id = ${sessionId} limit 1`
+  return (rows[0] as Report) ?? null
 }
 
-export async function upsertReport(
-  sessionId: string,
-  content: ReportContent,
-  aiModel = 'llama-3.3-70b-versatile'
-): Promise<Report> {
-  const { data, error } = await supabase
-    .from('reports')
-    .upsert(
-      { session_id: sessionId, content, ai_model: aiModel },
-      { onConflict: 'session_id' }
-    )
-    .select()
-    .single()
+export async function upsertReport(params: {
+  sessionId: string
+  userId:    string
+  content:   ReportContent
+  aiModel:   string
+}): Promise<Report> {
+  const rows = await sql`
+    insert into reports (session_id, user_id, content, ai_model)
+    values (${params.sessionId}, ${params.userId}, ${JSON.stringify(params.content)}, ${params.aiModel})
+    on conflict (session_id) do update set
+      content      = excluded.content,
+      ai_model     = excluded.ai_model,
+      generated_at = now()
+    returning *`
+  return rows[0] as Report
+}
 
-  if (error) throw new Error(`upsertReport: ${error.message}`)
-  return data as Report
+export async function patchReport(
+  sessionId: string,
+  patch:     Partial<ReportContent>
+): Promise<Report> {
+  // Merge parcial no JSONB
+  const rows = await sql`
+    update reports
+    set content = content || ${JSON.stringify(patch)}::jsonb
+    where session_id = ${sessionId}
+    returning *`
+  if (!rows[0]) throw new Error('Report not found')
+  return rows[0] as Report
 }
