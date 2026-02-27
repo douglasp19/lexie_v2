@@ -9,7 +9,7 @@ interface Session {
   id: string; patient_name: string; session_type: string
   notes: string | null; anchor_words: string[]; status: string; created_at: string
 }
-interface AudioUpload { status: string; transcription: string | null }
+interface AudioUpload { status: string; transcription: string | null; storage_path: string | null }
 interface Template    { id: string; title: string; content: string }
 type PageParams = { params: Promise<{ id: string }> }
 
@@ -574,10 +574,26 @@ export default function SessionPage({ params }: PageParams) {
 
                 {audioUpload.status === 'error' && (
                   <div style={{ padding: '0.65rem 0.75rem', background: 'var(--red-light)', border: '1px solid rgba(229,62,62,0.2)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ fontSize: '0.77rem', color: 'var(--red)', marginBottom: '0.5rem' }}>⚠ Erro na transcrição.</div>
-                    <button onClick={handleRetry} disabled={retrying} style={{ width: '100%', padding: '0.42rem', borderRadius: 'var(--radius-sm)', background: retrying ? 'var(--border)' : 'var(--red)', color: 'white', border: 'none', cursor: retrying ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
-                      {retrying ? <><span className="spinner" /> Tentando…</> : '🔄 Tentar novamente'}
-                    </button>
+                    {audioUpload.storage_path ? (
+                      // Tem arquivo no storage — pode reprocessar
+                      <>
+                        <div style={{ fontSize: '0.77rem', color: 'var(--red)', marginBottom: '0.5rem' }}>⚠ Erro na transcrição.</div>
+                        <button onClick={handleRetry} disabled={retrying} style={{ width: '100%', padding: '0.42rem', borderRadius: 'var(--radius-sm)', background: retrying ? 'var(--border)' : 'var(--red)', color: 'white', border: 'none', cursor: retrying ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                          {retrying ? <><span className="spinner" /> Tentando…</> : '🔄 Tentar novamente'}
+                        </button>
+                      </>
+                    ) : (
+                      // Sem arquivo (upload cancelado) — pede novo arquivo
+                      <>
+                        <div style={{ fontSize: '0.77rem', color: 'var(--red)', marginBottom: '0.5rem' }}>Upload cancelado.</div>
+                        <label htmlFor="audio-file-input" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.42rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'var(--red)', color: 'white', fontSize: '0.78rem', fontWeight: 600 }}
+                          onClick={async () => {
+                            await cancelUpload()  // limpa banco → polling retorna null
+                          }}>
+                          📁 Carregar outro arquivo
+                        </label>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const { sessionId } = await params
 
     const rows = await sql`
-      select status, transcription, transcription_segments
+      select status, transcription, transcription_segments, storage_path
       from audio_uploads
       where session_id = ${sessionId}
       order by created_at desc

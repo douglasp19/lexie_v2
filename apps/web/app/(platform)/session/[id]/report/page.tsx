@@ -37,7 +37,7 @@ export default async function ReportPage({ params }: Params) {
     )
   }
 
-  const content = report.content as Record<string, string>
+  const content = report.content as unknown as Record<string, string>
 
   return (
     <div className="fade-up">
