@@ -32,15 +32,19 @@ const REPORT_SECTIONS = [
   { key: 'proximos_passos', label: 'Próximos Passos',    icon: '▶' },
 ] as const
 
+// Extrai só YYYY-MM-DD de qualquer formato (date ou datetime do Postgres)
+function extractDate(iso: string): string {
+  return iso.split('T')[0]
+}
+
 function age(birthDate: string) {
-  const [y, m, d] = birthDate.split('-').map(Number)
-  const birth = new Date(y, m - 1, d) // sem UTC — evita erro de timezone
+  const [y, m, d] = extractDate(birthDate).split('-').map(Number)
+  const birth = new Date(y, m - 1, d)
   return Math.floor((Date.now() - birth.getTime()) / (1000 * 60 * 60 * 24 * 365.25))
 }
 
-// Formata datas vindas do banco (YYYY-MM-DD) sem conversão UTC→local
 function fmtDate(iso: string) {
-  return iso.split('-').reverse().join('/')
+  return extractDate(iso).split('-').reverse().join('/')
 }
 
 // ── Modal de resumo da consulta ───────────────────────────────────────────────

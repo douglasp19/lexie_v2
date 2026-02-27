@@ -1,139 +1,113 @@
-// @route apps/web/lib/ai/transcribe.ts
-import Groq from 'groq-sdk'
-import { WHISPER_PROMPT } from './prompts'
+// @route apps/web/app/(platform)/session/[id]/TranscriptionModal.tsx
+// Componente isolado — substitui o TranscriptionModal inline do session page
+'use client'
 
-const groq = new Groq({
-  apiKey:     process.env.GROQ_API_KEY,
-  timeout:    120_000,
-  maxRetries: 0,
-})
-
-const WHISPER_MODEL = 'whisper-large-v3-turbo'
-const MAX_BYTES     = 20 * 1024 * 1024
-const MAX_ATTEMPTS  = 4
-
-export interface TranscriptionSegment {
+interface Segment {
   start: number
   end:   number
   text:  string
 }
 
-export interface TranscriptionResult {
-  text:     string
-  segments: TranscriptionSegment[]
+interface Props {
+  text:      string
+  segments?: Segment[] | null
+  onClose:   () => void
 }
 
-export async function transcribeAudio(
-  audioBuffer: Buffer,
-  mimeType: string,
-  filename = 'audio.webm'
-): Promise<TranscriptionResult> {
-
-  if (audioBuffer.byteLength <= MAX_BYTES) {
-    return transcribeChunk(audioBuffer, mimeType, filename, 0)
-  }
-
-  const totalMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(1)
-  const parts   = Math.ceil(audioBuffer.byteLength / MAX_BYTES)
-  console.log(`[transcribe] ${totalMB} MB -> ${parts} partes`)
-
-  let timeOffset = 0
-  const allSegments: TranscriptionSegment[] = []
-  const allTexts:    string[]               = []
-
-  for (let i = 0; i < parts; i++) {
-    const chunk  = audioBuffer.subarray(i * MAX_BYTES, (i + 1) * MAX_BYTES)
-    const result = await transcribeChunk(chunk, mimeType, filename, i)
-
-    allTexts.push(result.text)
-
-    for (const seg of result.segments) {
-      allSegments.push({
-        start: seg.start + timeOffset,
-        end:   seg.end   + timeOffset,
-        text:  seg.text,
-      })
-    }
-
-    if (result.segments.length > 0) {
-      timeOffset = result.segments[result.segments.length - 1].end + timeOffset
-    }
-  }
-
-  return { text: allTexts.join(' '), segments: allSegments }
+function fmtTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-async function transcribeChunk(
-  buffer:   Buffer,
-  mimeType: string,
-  filename: string,
-  part:     number,
-  attempt = 0
-): Promise<TranscriptionResult> {
-  try {
-    console.log(`[transcribe] Parte ${part} tentativa ${attempt + 1}/${MAX_ATTEMPTS} - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB`)
+export function TranscriptionModal({ text, segments, onClose }: Props) {
+  const hasSegments = segments && segments.length > 0
 
-    const file = new File([buffer], filename, { type: mimeType })
-    const res  = await groq.audio.transcriptions.create({
-      file,
-      model:           WHISPER_MODEL,
-      language:        'pt',
-      prompt:          WHISPER_PROMPT,
-      response_format: 'verbose_json',
-    })
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: 'white', borderRadius: 'var(--radius)', width: '100%', maxWidth: 700, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>🎙 Transcrição da Consulta</span>
+            {hasSegments && (
+              <span style={{ marginLeft: '0.75rem', fontSize: '0.7rem', color: 'var(--text3)', background: 'var(--surface2)', padding: '0.15rem 0.5rem', borderRadius: '99px' }}>
+                {segments!.length} segmentos
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--text3)', lineHeight: 1 }}>×</button>
+        </div>
 
-    const data = res as any
+        {/* Content */}
+        <div style={{ overflowY: 'auto', flex: 1, padding: '1.25rem' }}>
+          {hasSegments ? (
+            // ── Modo com timestamps ──────────────────────────────────────────
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {segments!.map((seg, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display:    'grid',
+                    gridTemplateColumns: '60px 1fr',
+                    gap:        '0.75rem',
+                    padding:    '0.55rem 0',
+                    borderBottom: i < segments!.length - 1 ? '1px solid var(--border)' : 'none',
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span style={{
+                    fontSize:   '0.7rem',
+                    fontFamily: 'monospace',
+                    color:      'var(--green-dark)',
+                    fontWeight: 600,
+                    background: 'var(--green-light)',
+                    padding:    '0.1rem 0.35rem',
+                    borderRadius: '4px',
+                    whiteSpace: 'nowrap',
+                    textAlign:  'right',
+                  }}>
+                    {fmtTime(seg.start)}
+                  </span>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text)', lineHeight: 1.65, margin: 0 }}>
+                    {seg.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // ── Modo texto puro (transcrições antigas sem segmentos) ─────────
+            <p style={{ fontSize: '0.875rem', color: 'var(--text)', lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
+              {text}
+            </p>
+          )}
+        </div>
 
-    const segments: TranscriptionSegment[] = (data.segments ?? []).map((s: any) => ({
-      start: Math.round(s.start * 10) / 10,
-      end:   Math.round(s.end   * 10) / 10,
-      text:  s.text.trim(),
-    }))
-
-    return { text: (data.text ?? '').trim(), segments }
-
-  } catch (err: any) {
-    if (attempt >= MAX_ATTEMPTS - 1) throw err
-
-    if (err?.status === 429) {
-      const waitMs  = parseGroqWaitTime(err?.message) ?? (60_000 * (attempt + 1))
-      console.warn(`[transcribe] Rate limit 429 - aguardando ${Math.ceil(waitMs / 1000)}s...`)
-      await sleep(waitMs)
-      return transcribeChunk(buffer, mimeType, filename, part, attempt + 1)
-    }
-
-    const isRetryable =
-      err?.status >= 500 ||
-      err?.message?.includes('Connection') ||
-      err?.message?.includes('timeout') ||
-      err?.message?.includes('ECONNRESET')
-
-    if (isRetryable) {
-      const delay = (attempt + 1) * 5_000
-      console.log(`[transcribe] Erro ${err?.status ?? 'rede'} - retry em ${delay / 1000}s...`)
-      await sleep(delay)
-      return transcribeChunk(buffer, mimeType, filename, part, attempt + 1)
-    }
-
-    throw err
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function parseGroqWaitTime(message?: string): number | null {
-  if (!message) return null
-  const match = message.match(/try again in\s+((?:\d+h)?\s*(?:\d+m)?\s*(?:[\d.]+s)?)/i)
-  if (!match) return null
-  const raw = match[1]
-  let ms = 0
-  const hours   = raw.match(/(\d+)h/)
-  const minutes = raw.match(/(\d+)m/)
-  const seconds = raw.match(/([\d.]+)s/)
-  if (hours)   ms += parseInt(hours[1])     * 3_600_000
-  if (minutes) ms += parseInt(minutes[1])   * 60_000
-  if (seconds) ms += parseFloat(seconds[1]) * 1_000
-  return ms > 0 ? ms + 3_000 : null
+        {/* Footer */}
+        <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <button
+            onClick={() => navigator.clipboard.writeText(
+              hasSegments
+                ? segments!.map(s => `[${fmtTime(s.start)}] ${s.text}`).join('\n')
+                : text
+            )}
+            style={{ padding: '0.42rem 0.875rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'none', fontSize: '0.78rem', cursor: 'pointer', color: 'var(--text2)' }}
+          >
+            📋 Copiar
+          </button>
+          <button onClick={onClose} className="btn-primary" style={{ fontSize: '0.78rem' }}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }

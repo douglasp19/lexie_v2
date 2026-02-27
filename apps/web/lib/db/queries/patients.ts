@@ -8,41 +8,68 @@ export interface Patient {
 }
 
 export async function listPatients(userId: string): Promise<Patient[]> {
-  return sql`select * from patients where user_id = ${userId} order by name asc` as any
+  return sql`
+    select * from patients where user_id = ${userId} order by name asc
+  ` as any
 }
 
 export async function searchPatients(userId: string, q: string): Promise<Patient[]> {
   return sql`
     select * from patients
     where user_id = ${userId} and name ilike ${'%' + q + '%'}
-    order by name asc limit 20` as any
+    order by name asc limit 20
+  ` as any
 }
 
 export async function getPatient(id: string, userId: string): Promise<Patient | null> {
-  const rows = await sql`select * from patients where id = ${id} and user_id = ${userId} limit 1`
+  const rows = await sql`
+    select * from patients where id = ${id} and user_id = ${userId} limit 1
+  `
   return (rows[0] as Patient) ?? null
 }
 
-export async function createPatient(input: {
-  user_id: string; name: string; email?: string | null; phone?: string | null
-  birth_date?: string | null; anamnesis?: string | null; goals?: string | null; notes?: string | null
-}): Promise<Patient> {
+export async function createPatient(
+  userId: string,
+  data: {
+    name: string; email?: string | null; phone?: string | null
+    birth_date?: string | null; anamnesis?: string | null
+    goals?: string | null; notes?: string | null
+  }
+): Promise<Patient> {
   const rows = await sql`
     insert into patients (user_id, name, email, phone, birth_date, anamnesis, goals, notes)
-    values (${input.user_id}, ${input.name}, ${input.email ?? null}, ${input.phone ?? null},
-            ${input.birth_date ?? null}, ${input.anamnesis ?? null}, ${input.goals ?? null}, ${input.notes ?? null})
-    returning *`
+    values (
+      ${userId}, ${data.name}, ${data.email ?? null}, ${data.phone ?? null},
+      ${data.birth_date ?? null}, ${data.anamnesis ?? null},
+      ${data.goals ?? null}, ${data.notes ?? null}
+    )
+    returning *
+  `
   return rows[0] as Patient
 }
 
 export async function updatePatient(
-  id: string, userId: string,
-  patch: Partial<Omit<Patient, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
+  id: string,
+  userId: string,
+  patch: {
+    name?: string; email?: string | null; phone?: string | null
+    birth_date?: string | null; anamnesis?: string | null
+    goals?: string | null; notes?: string | null
+  }
 ): Promise<Patient> {
-  const entries = Object.entries(patch).filter(([, v]) => v !== undefined)
-  if (entries.length === 0) return (await getPatient(id, userId))!
-  const vals = Object.fromEntries(entries)
-  const rows = await sql`update patients set ${sql(vals)} where id = ${id} and user_id = ${userId} returning *`
+  // UPDATE explícito — evita problemas com sql(vals) dinâmico
+  const rows = await sql`
+    update patients set
+      name       = coalesce(${patch.name       ?? null}, name),
+      email      = case when ${patch.email      !== undefined}::boolean then ${patch.email      ?? null} else email      end,
+      phone      = case when ${patch.phone      !== undefined}::boolean then ${patch.phone      ?? null} else phone      end,
+      birth_date = case when ${patch.birth_date !== undefined}::boolean then ${patch.birth_date ?? null}::date else birth_date end,
+      anamnesis  = case when ${patch.anamnesis  !== undefined}::boolean then ${patch.anamnesis  ?? null} else anamnesis  end,
+      goals      = case when ${patch.goals      !== undefined}::boolean then ${patch.goals      ?? null} else goals      end,
+      notes      = case when ${patch.notes      !== undefined}::boolean then ${patch.notes      ?? null} else notes      end
+    where id = ${id} and user_id = ${userId}
+    returning *
+  `
   if (!rows[0]) throw new Error('Patient not found')
   return rows[0] as Patient
 }
@@ -55,5 +82,6 @@ export async function getPatientSessions(patientId: string, userId: string) {
   return sql`
     select * from sessions
     where patient_id = ${patientId} and user_id = ${userId}
-    order by created_at desc` as any
+    order by created_at desc
+  ` as any
 }

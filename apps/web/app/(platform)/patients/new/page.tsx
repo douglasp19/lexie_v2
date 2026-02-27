@@ -9,7 +9,6 @@ export default function NewPatientPage() {
   const router = useRouter()
   const [form, setForm] = useState({
     name: '', email: '', phone: '', birth_date: '',
-    anamnesis: '', goals: '', notes: '',
   })
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
@@ -22,7 +21,9 @@ export default function NewPatientPage() {
     setLoading(true); setError('')
     try {
       const res  = await fetch('/api/patients', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -51,7 +52,6 @@ export default function NewPatientPage() {
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
 
-          {/* Dados básicos */}
           <div className="card" style={{ padding: '1.25rem' }}>
             <span className="section-label" style={{ display: 'block', marginBottom: '1rem' }}>👤 Dados Básicos</span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
@@ -76,36 +76,9 @@ export default function NewPatientPage() {
             </div>
           </div>
 
-          {/* Clínico */}
-          <div className="card" style={{ padding: '1.25rem' }}>
-            <span className="section-label" style={{ display: 'block', marginBottom: '1rem' }}>📋 Histórico Clínico</span>
-            <textarea className="textarea" style={{ height: 110 }}
-              placeholder="Doenças pré-existentes, medicamentos em uso, alergias, cirurgias…"
-              value={form.anamnesis} onChange={e => set('anamnesis')(e.target.value)}
-            />
-          </div>
-
-          {/* Objetivos */}
-          <div className="card" style={{ padding: '1.25rem' }}>
-            <span className="section-label" style={{ display: 'block', marginBottom: '1rem' }}>🎯 Objetivos Gerais</span>
-            <textarea className="textarea" style={{ height: 90 }}
-              placeholder="Emagrecimento, ganho de massa, reeducação alimentar, controle de exames…"
-              value={form.goals} onChange={e => set('goals')(e.target.value)}
-            />
-          </div>
-
-          {/* Notas */}
-          <div className="card" style={{ padding: '1.25rem' }}>
-            <span className="section-label" style={{ display: 'block', marginBottom: '1rem' }}>📝 Anotações</span>
-            <textarea className="textarea" style={{ height: 80 }}
-              placeholder="Observações livres sobre o paciente…"
-              value={form.notes} onChange={e => set('notes')(e.target.value)}
-            />
-          </div>
-
           {error && (
             <div style={{ padding: '0.65rem 0.875rem', background: 'var(--red-light)', border: '1px solid rgba(229,62,62,0.2)', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', color: 'var(--red)' }}>
-              {error}
+              ⚠ {error}
             </div>
           )}
 

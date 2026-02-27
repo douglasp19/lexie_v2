@@ -36,18 +36,28 @@ export async function getSession(id: string, userId: string): Promise<Session> {
 }
 
 export async function updateSession(
-  id: string, userId: string,
-  patch: Partial<Pick<Session, 'notes' | 'anchor_words' | 'status' | 'patient_name' | 'session_type' | 'patient_id'>>
+  id: string,
+  userId: string,
+  patch: {
+    notes?:        string | null
+    anchor_words?: string[]
+    status?:       SessionStatus
+    patient_name?: string
+    session_type?: SessionType
+    patient_id?:   string | null
+  }
 ): Promise<Session> {
-  const entries = Object.entries(patch).filter(([, v]) => v !== undefined)
-  if (entries.length === 0) return getSession(id, userId)
-
-  // Monta SET dinâmico
-  const sets = entries.map(([k]) => `${k} = $${k}`).join(', ')
-  const vals = Object.fromEntries(entries)
-
+  // UPDATE explícito — evita problemas com sql(vals) dinâmico
   const rows = await sql`
-    update sessions set ${sql(vals)} where id = ${id} and user_id = ${userId} returning *`
+    update sessions set
+      notes        = case when ${patch.notes        !== undefined}::boolean then ${patch.notes        ?? null}       else notes        end,
+      anchor_words = case when ${patch.anchor_words !== undefined}::boolean then ${patch.anchor_words ?? []}         else anchor_words end,
+      status       = case when ${patch.status       !== undefined}::boolean then ${patch.status       ?? null}       else status       end,
+      patient_name = case when ${patch.patient_name !== undefined}::boolean then ${patch.patient_name ?? null}       else patient_name end,
+      session_type = case when ${patch.session_type !== undefined}::boolean then ${patch.session_type ?? null}::text else session_type end,
+      patient_id   = case when ${patch.patient_id   !== undefined}::boolean then ${patch.patient_id   ?? null}::uuid else patient_id   end
+    where id = ${id} and user_id = ${userId}
+    returning *`
   if (!rows[0]) throw new Error('Session not found')
   return rows[0] as Session
 }
