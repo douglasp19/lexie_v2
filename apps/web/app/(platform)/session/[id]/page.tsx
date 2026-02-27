@@ -123,6 +123,7 @@ export default function SessionPage({ params }: PageParams) {
   const [uploadProgress,setUploadProgress]= useState<number | null>(null)
   const [retrying,      setRetrying]      = useState(false)
   const [uploadError,   setUploadError]   = useState('')
+  const [cancelling,    setCancelling]    = useState(false)
 
   // Templates
   const [templates,      setTemplates]      = useState<Template[]>([])
@@ -133,7 +134,8 @@ export default function SessionPage({ params }: PageParams) {
   // Modais
   const [showTranscription, setShowTranscription] = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef    = useRef<HTMLInputElement>(null)
+  const abortController = useRef<AbortController | null>(null)
 
   // ─── Load session ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -225,11 +227,31 @@ export default function SessionPage({ params }: PageParams) {
     }
   }
 
+  // ─── Cancel upload ──────────────────────────────────────────────────────────
+  async function cancelUpload() {
+    setCancelling(true)
+    // Aborta fetch em andamento
+    if (abortController.current) {
+      abortController.current.abort()
+      abortController.current = null
+    }
+    try {
+      await fetch(`/api/audio/cancel/${id}`, { method: 'POST' })
+    } catch {}
+    setAudioUpload(null)
+    setUploadProgress(null)
+    setUploadError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setCancelling(false)
+  }
+
   // ─── Manual file upload ──────────────────────────────────────────────────
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploadError(''); setUploadProgress(0)
+    abortController.current = new AbortController()
+    const signal = abortController.current.signal
     try {
       const initRes = await fetch('/api/audio/upload-init', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -247,6 +269,7 @@ export default function SessionPage({ params }: PageParams) {
           method: 'POST',
           headers: { 'x-upload-id': uploadId, 'x-chunk-index': String(i), 'x-total-chunks': String(totalChunks), 'x-session-id': id },
           body: form,
+          signal,
         })
         if (!res.ok) throw new Error(`Falha no chunk ${i + 1}`)
         setUploadProgress(Math.round(((i + 1) / totalChunks) * 80))
@@ -264,6 +287,7 @@ export default function SessionPage({ params }: PageParams) {
       const statusData = await fetch(`/api/audio/status/${id}`).then(r => r.json())
       if (statusData.upload) setAudioUpload(statusData.upload)
     } catch (err: any) {
+      if (err.name === 'AbortError') return // cancelado pelo usuário
       setUploadError(err.message); setUploadProgress(null)
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -490,6 +514,9 @@ export default function SessionPage({ params }: PageParams) {
                       <div style={{ height: '100%', width: `${uploadProgress}%`, background: 'var(--green)', borderRadius: 99, transition: 'width 0.3s' }} />
                     </div>
                     <div style={{ fontSize: '0.67rem', color: 'var(--text3)', marginTop: '0.35rem' }}>{uploadProgress! >= 85 ? 'Transcrevendo com Whisper…' : 'Enviando chunks…'}</div>
+                  <button onClick={cancelUpload} disabled={cancelling} style={{ marginTop: '0.5rem', width: '100%', padding: '0.35rem', borderRadius: '6px', border: '1px solid rgba(229,62,62,0.3)', background: 'none', fontSize: '0.72rem', color: 'var(--red)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {cancelling ? 'Cancelando…' : '✕ Cancelar upload'}
+                  </button>
                   </div>
                 ) : (
                   <label htmlFor="audio-file-input" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.52rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1.5px dashed var(--green)', background: 'var(--green-light)', fontSize: '0.78rem', fontWeight: 600, color: 'var(--green-dark)', transition: 'all 0.15s' }}>
@@ -507,6 +534,12 @@ export default function SessionPage({ params }: PageParams) {
                 <StatusStep done={['assembling','transcribing','transcribed','deleted'].includes(audioUpload.status)} active={audioUpload.status === 'uploading'} label="Upload enviado" icon="📤" />
                 <StatusStep done={['transcribing','transcribed','deleted'].includes(audioUpload.status)} active={audioUpload.status === 'assembling'} label="Montando arquivo" icon="🔧" />
                 <StatusStep done={['transcribed','deleted'].includes(audioUpload.status)} active={audioUpload.status === 'transcribing'} label="Transcrevendo com Whisper" icon="🎙" hint={audioUpload.status === 'transcribing' ? 'Pode levar 1-3 min para arquivos grandes' : undefined} />
+
+                {(audioUpload.status === 'uploading' || audioUpload.status === 'assembling' || audioUpload.status === 'transcribing') && (
+                  <button onClick={cancelUpload} disabled={cancelling} style={{ width: '100%', padding: '0.38rem', borderRadius: '6px', border: '1px solid rgba(229,62,62,0.3)', background: 'none', fontSize: '0.73rem', color: 'var(--red)', cursor: 'pointer', fontFamily: 'inherit', marginTop: '0.2rem' }}>
+                    {cancelling ? 'Cancelando…' : '✕ Cancelar'}
+                  </button>
+                )}
 
                 {audioUpload.status === 'transcribed' && (
                   <div style={{ padding: '0.6rem 0.75rem', background: 'var(--green-light)', border: '1px solid rgba(76,175,80,0.2)', borderRadius: 'var(--radius-sm)' }}>
