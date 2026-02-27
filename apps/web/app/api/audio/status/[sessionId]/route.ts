@@ -1,8 +1,7 @@
 // @route apps/web/app/api/audio/status/[sessionId]/route.ts
-// GET → retorna o upload mais recente da sessão (para polling de status)
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/db/client'
+import { sql } from '@/lib/db/client'
 
 type Params = { params: Promise<{ sessionId: string }> }
 
@@ -13,17 +12,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const { sessionId } = await params
 
-    const { data, error } = await supabase
-      .from('audio_uploads')
-      .select('status, transcription')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const rows = await sql`
+      select status, transcription, transcription_segments
+      from audio_uploads
+      where session_id = ${sessionId}
+      order by created_at desc
+      limit 1
+    `
 
-    if (error) throw new Error(error.message)
-
-    return NextResponse.json({ upload: data })
+    return NextResponse.json({ upload: rows[0] ?? null })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

@@ -1,11 +1,11 @@
 // @route apps/web/app/api/report/[sessionId]/generate/route.ts
-// POST → busca transcrição + notas + âncoras → Groq LLM → salva relatório
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/db/client'
+import { sql } from '@/lib/db/client'
 import { getSession } from '@/lib/db/queries/sessions'
 import { upsertReport } from '@/lib/db/queries/reports'
 import { generateReport } from '@/lib/ai/generate-report'
+import { REPORT_MODEL } from '@/lib/ai/generate-report'
 
 export const maxDuration = 60
 
@@ -17,47 +17,40 @@ export async function POST(_req: NextRequest, { params }: Params) {
     if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
     const { sessionId } = await params
-
-    // 1. Valida que a sessão pertence ao usuário
     const session = await getSession(sessionId, userId)
 
-    // 2. Busca transcrição mais recente
-    const { data: upload, error: uploadErr } = await supabase
-      .from('audio_uploads')
-      .select('transcription')
-      .eq('session_id', sessionId)
-      .eq('status', 'transcribed')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
+    // Busca transcrição mais recente
+    const rows = await sql`
+      select transcription from audio_uploads
+      where session_id = ${sessionId} and status = 'transcribed'
+      order by created_at desc limit 1
+    `
 
-    if (uploadErr || !upload?.transcription) {
+    if (!rows[0]?.transcription)
       return NextResponse.json(
         { error: 'Transcrição não encontrada. Aguarde o processamento do áudio.' },
         { status: 404 }
       )
-    }
 
-    // 3. Gera relatório com Groq LLM
-    console.log(`[report/generate] Gerando relatório — session=${sessionId}`)
+    console.log(`[report/generate] Gerando — session=${sessionId}`)
 
     const content = await generateReport({
-      transcription: upload.transcription,
+      transcription: rows[0].transcription,
       notes:         session.notes,
       anchorWords:   session.anchor_words,
       patientName:   session.patient_name,
     })
 
-    // 4. Salva relatório (upsert — permite regenerar)
-    const report = await upsertReport(sessionId, content)
+    const report = await upsertReport({
+      sessionId,
+      userId,
+      content,
+      aiModel: REPORT_MODEL,
+    })
 
-    // 5. Atualiza status da sessão
-    await supabase
-      .from('sessions')
-      .update({ status: 'done' })
-      .eq('id', sessionId)
+    await sql`update sessions set status = 'done' where id = ${sessionId}`
 
-    console.log(`[report/generate] ✅ Relatório salvo — report=${report.id}`)
+    console.log(`[report/generate] ✅ report=${report.id}`)
     return NextResponse.json({ report })
 
   } catch (err: any) {

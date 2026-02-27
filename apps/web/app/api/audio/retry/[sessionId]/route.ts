@@ -1,7 +1,8 @@
 // @route apps/web/app/api/audio/retry/[sessionId]/route.ts
+import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/db/client'
-import { assembleChunks, downloadAudio, deleteAudio } from '@/lib/storage/audio'
+import { sql } from '@/lib/db/client'
+import { downloadAudio } from '@/lib/storage/audio'
 import { transcribeAudio } from '@/lib/ai/transcribe'
 
 export const maxDuration = 300
@@ -9,78 +10,53 @@ export const maxDuration = 300
 type Params = { params: Promise<{ sessionId: string }> }
 
 export async function POST(_req: NextRequest, { params }: Params) {
-  const { sessionId } = await params
-
-  const setStatus = (uploadId: string, status: string) =>
-    supabase.from('audio_uploads').update({ status }).eq('upload_id', uploadId)
-
   try {
-    // Busca o upload mais recente da sessão com erro ou preso
-    const { data: upload } = await supabase
-      .from('audio_uploads')
-      .select('*')
-      .eq('session_id', sessionId)
-      .in('status', ['error', 'uploading', 'assembling', 'transcribing', 'pending'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const { userId } = await auth()
+    if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-    if (!upload) {
-      return NextResponse.json({ error: 'Nenhum upload para tentar novamente' }, { status: 404 })
-    }
+    const { sessionId } = await params
 
-    const uploadId = upload.upload_id
-    const mimeType = upload.mime_type ?? 'audio/webm'
+    // Valida que a sessão pertence ao usuário
+    const sessRows = await sql`select id from sessions where id = ${sessionId} and user_id = ${userId} limit 1`
+    if (!sessRows[0])
+      return NextResponse.json({ error: 'Sessão não encontrada' }, { status: 404 })
 
-    console.log(`[retry] session=${sessionId} upload=${uploadId} status=${upload.status}`)
+    // Busca upload com erro
+    const upRows = await sql`
+      select upload_id, storage_path, mime_type from audio_uploads
+      where session_id = ${sessionId} and status in ('error', 'assembling', 'transcribing')
+      order by created_at desc limit 1
+    `
+    if (!upRows[0])
+      return NextResponse.json({ error: 'Nenhum upload para reprocessar' }, { status: 404 })
 
-    // Se já tem storage_path (arquivo montado), pula o assemble
-    let finalPath = upload.storage_path
+    const upload = upRows[0]
+    if (!upload.storage_path)
+      return NextResponse.json({ error: 'Arquivo de áudio não encontrado no storage' }, { status: 400 })
 
-    if (!finalPath) {
-      // Precisa montar de novo — verifica se chunks existem
-      const { data: chunkList } = await supabase.storage
-        .from('audio-temp').list(`chunks/${uploadId}`)
+    console.log(`[audio/retry] Reprocessando upload=${upload.upload_id}`)
 
-      if (!chunkList?.length) {
-        return NextResponse.json({ error: 'Chunks não encontrados — envie o arquivo novamente' }, { status: 404 })
-      }
+    await sql`update audio_uploads set status = 'transcribing' where upload_id = ${upload.upload_id}`
 
-      await setStatus(uploadId, 'assembling')
-      finalPath = await assembleChunks(uploadId, chunkList.length, mimeType, sessionId)
-      await supabase.from('audio_uploads')
-        .update({ storage_path: finalPath, status: 'transcribing' })
-        .eq('upload_id', uploadId)
-    } else {
-      await setStatus(uploadId, 'transcribing')
-    }
+    const audioBuffer = await downloadAudio(upload.storage_path)
+    const mimeType    = upload.mime_type ?? 'audio/webm'
+    const ext         = mimeType.includes('ogg') ? 'ogg' : 'webm'
 
-    // Transcreve
-    const audioBuffer = await downloadAudio(finalPath)
-    const ext = mimeType.includes('mp3') || mimeType.includes('mpeg') ? 'mp3'
-              : mimeType.includes('mp4') || mimeType.includes('m4a')  ? 'mp4'
-              : mimeType.includes('ogg')                              ? 'ogg'
-              : mimeType.includes('wav')                              ? 'wav'
-              : 'webm'
-    const transcription = await transcribeAudio(audioBuffer, mimeType, `audio.${ext}`)
+    const result = await transcribeAudio(audioBuffer, mimeType, `audio.${ext}`)
 
-    await supabase.from('audio_uploads')
-      .update({ transcription, status: 'transcribed' })
-      .eq('upload_id', uploadId)
+    await sql`
+      update audio_uploads set
+        transcription          = ${result.text},
+        transcription_segments = ${JSON.stringify(result.segments)},
+        status                 = 'transcribed'
+      where upload_id = ${upload.upload_id}
+    `
+    await sql`update sessions set status = 'processing' where id = ${sessionId}`
 
-    await supabase.from('sessions').update({ status: 'processing' }).eq('id', sessionId)
-    await deleteAudio(finalPath).catch(() => {})
-
-    console.log(`[retry] ✅ chars=${transcription.length}`)
-    return NextResponse.json({ ok: true })
-
+    console.log(`[audio/retry] ✅ chars=${result.text.length}`)
+    return NextResponse.json({ ok: true, transcriptionLength: result.text.length })
   } catch (err: any) {
-    console.error('[retry] ❌', err.message)
-    // Marca como erro para o usuário ver
-    const { data: upload } = await supabase
-      .from('audio_uploads').select('upload_id').eq('session_id', sessionId)
-      .order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (upload) await setStatus(upload.upload_id, 'error')
+    console.error('[audio/retry] ❌', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
