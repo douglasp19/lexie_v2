@@ -1,6 +1,9 @@
 // @route apps/web/lib/ai/transcribe.ts
 import Groq from 'groq-sdk'
 import { WHISPER_PROMPT } from './prompts'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -23,19 +26,39 @@ export interface TranscriptionResult {
   segments: TranscriptionSegment[]
 }
 
+/**
+ * Whisper NÃO aceita audio/x-m4a
+ */
+function normalizeMime(mime: string): string {
+  if (mime === 'audio/x-m4a' || mime === 'audio/m4a') return 'audio/mp4'
+  if (mime === 'audio/webm') return 'audio/webm'
+  if (mime === 'audio/ogg') return 'audio/ogg'
+  if (mime === 'audio/wav') return 'audio/wav'
+  return mime
+}
+
+function extFromMime(mime: string): string {
+  if (mime === 'audio/mp4') return 'mp4'
+  if (mime === 'audio/webm') return 'webm'
+  if (mime === 'audio/ogg') return 'ogg'
+  if (mime === 'audio/wav') return 'wav'
+  return 'bin'
+}
+
 export async function transcribeAudio(
   audioBuffer: Buffer,
   mimeType: string,
-  filename = 'audio.webm'
+  filename = 'audio'
 ): Promise<TranscriptionResult> {
 
+  const safeMime = normalizeMime(mimeType)
+
   if (audioBuffer.byteLength <= MAX_BYTES) {
-    return transcribeChunk(audioBuffer, mimeType, filename, 0)
+    return transcribeChunk(audioBuffer, safeMime, filename, 0)
   }
 
-  const totalMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(1)
   const parts = Math.ceil(audioBuffer.byteLength / MAX_BYTES)
-  console.log(`[transcribe] ${totalMB} MB -> ${parts} partes`)
+  console.log(`[transcribe] ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB -> ${parts} partes`)
 
   let timeOffset = 0
   const allSegments: TranscriptionSegment[] = []
@@ -43,7 +66,7 @@ export async function transcribeAudio(
 
   for (let i = 0; i < parts; i++) {
     const chunk = audioBuffer.subarray(i * MAX_BYTES, (i + 1) * MAX_BYTES)
-    const result = await transcribeChunk(chunk, mimeType, filename, i)
+    const result = await transcribeChunk(chunk, safeMime, filename, i)
 
     allTexts.push(result.text)
 
@@ -56,7 +79,7 @@ export async function transcribeAudio(
     }
 
     if (result.segments.length > 0) {
-      timeOffset = result.segments[result.segments.length - 1].end + timeOffset
+      timeOffset += result.segments[result.segments.length - 1].end
     }
   }
 
@@ -66,19 +89,25 @@ export async function transcribeAudio(
 async function transcribeChunk(
   buffer: Buffer,
   mimeType: string,
-  filename: string,
+  baseName: string,
   part: number,
   attempt = 0
 ): Promise<TranscriptionResult> {
+  const ext = extFromMime(mimeType)
+  const tmpFile = path.join(os.tmpdir(), `${baseName}-${part}.${ext}`)
+
   try {
-    console.log(`[transcribe] Parte ${part} tentativa ${attempt + 1}/${MAX_ATTEMPTS} - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB`)
+    console.log(
+      `[transcribe] Parte ${part} tentativa ${attempt + 1}/${MAX_ATTEMPTS} - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB (${mimeType})`
+    )
 
-    const uint8 = new Uint8Array(buffer)
+    // ✅ grava arquivo temporário REAL
+    await fs.promises.writeFile(tmpFile, buffer)
 
-    const file = new File([uint8], filename, { type: mimeType })
-    
+    const stream = fs.createReadStream(tmpFile)
+
     const res = await groq.audio.transcriptions.create({
-      file,
+      file: stream as any,
       model: WHISPER_MODEL,
       language: 'pt',
       prompt: WHISPER_PROMPT,
@@ -93,50 +122,39 @@ async function transcribeChunk(
       text: s.text.trim(),
     }))
 
-    return { text: (data.text ?? '').trim(), segments }
+    return {
+      text: (data.text ?? '').trim(),
+      segments,
+    }
 
   } catch (err: any) {
     if (attempt >= MAX_ATTEMPTS - 1) throw err
 
     if (err?.status === 429) {
-      const waitMs = parseGroqWaitTime(err?.message) ?? (60_000 * (attempt + 1))
-      console.warn(`[transcribe] Rate limit 429 - aguardando ${Math.ceil(waitMs / 1000)}s...`)
+      const waitMs = (attempt + 1) * 60_000
+      console.warn(`[transcribe] 429 - aguardando ${waitMs / 1000}s`)
       await sleep(waitMs)
-      return transcribeChunk(buffer, mimeType, filename, part, attempt + 1)
+      return transcribeChunk(buffer, mimeType, baseName, part, attempt + 1)
     }
 
-    const isRetryable =
+    const retryable =
       err?.status >= 500 ||
-      err?.message?.includes('Connection') ||
       err?.message?.includes('timeout') ||
       err?.message?.includes('ECONNRESET')
 
-    if (isRetryable) {
+    if (retryable) {
       const delay = (attempt + 1) * 5_000
-      console.log(`[transcribe] Erro ${err?.status ?? 'rede'} - retry em ${delay / 1000}s...`)
       await sleep(delay)
-      return transcribeChunk(buffer, mimeType, filename, part, attempt + 1)
+      return transcribeChunk(buffer, mimeType, baseName, part, attempt + 1)
     }
 
     throw err
+  } finally {
+    // 🧹 limpeza garantida
+    fs.promises.unlink(tmpFile).catch(() => {})
   }
 }
 
-function sleep(ms: number): Promise<void> {
+function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function parseGroqWaitTime(message?: string): number | null {
-  if (!message) return null
-  const match = message.match(/try again in\s+((?:\d+h)?\s*(?:\d+m)?\s*(?:[\d.]+s)?)/i)
-  if (!match) return null
-  const raw = match[1]
-  let ms = 0
-  const hours = raw.match(/(\d+)h/)
-  const minutes = raw.match(/(\d+)m/)
-  const seconds = raw.match(/([\d.]+)s/)
-  if (hours) ms += parseInt(hours[1]) * 3_600_000
-  if (minutes) ms += parseInt(minutes[1]) * 60_000
-  if (seconds) ms += parseFloat(seconds[1]) * 1_000
-  return ms > 0 ? ms + 3_000 : null
 }
