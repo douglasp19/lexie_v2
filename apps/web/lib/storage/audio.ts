@@ -1,6 +1,6 @@
 // @route apps/web/lib/storage/audio.ts
 // npm install @vercel/blob
-import { put, del, list } from '@vercel/blob'
+import { put, del, list, download } from '@vercel/blob'
 
 // ─── Upload de chunk individual ───────────────────────────────────────────────
 
@@ -12,9 +12,9 @@ export async function uploadChunk(
   const path = `chunks/${uploadId}/chunk_${String(chunkIndex).padStart(5, '0')}`
 
   await put(path, data, {
-    access:          'public',  // único modo disponível no Vercel Blob
+    access:          'private',
     contentType:     'audio/webm',
-    addRandomSuffix: false,     // path previsível para poder listar por prefix
+    addRandomSuffix: false,
   })
 }
 
@@ -28,19 +28,22 @@ export async function assembleChunks(
 ): Promise<string> {
 
   // Lista todos os chunks deste upload pelo prefix
-  const { blobs } = await list({ prefix: `chunks/${uploadId}/` })
+  const { blobs } = await list({ prefix: `chunks/${uploadId}/`, mode: 'folded' })
 
-  if (blobs.length !== totalChunks) {
-    throw new Error(`assembleChunks: esperado ${totalChunks} chunks, encontrado ${blobs.length}`)
+  // folded retorna a pasta — usa expanded para pegar os arquivos
+  const { blobs: files } = await list({ prefix: `chunks/${uploadId}/` })
+
+  if (files.length !== totalChunks) {
+    throw new Error(`assembleChunks: esperado ${totalChunks} chunks, encontrado ${files.length}`)
   }
 
-  // Ordena pelo nome (chunk_00000, chunk_00001, ...)
-  const sorted = blobs.sort((a, b) => a.pathname.localeCompare(b.pathname))
+  // Ordena pelo pathname (chunk_00000, chunk_00001, ...)
+  const sorted = files.sort((a, b) => a.pathname.localeCompare(b.pathname))
 
-  // Baixa cada chunk e monta o buffer
+  // Baixa cada chunk usando o SDK (suporta store privado)
   const buffers: Buffer[] = []
   for (const blob of sorted) {
-    const res = await fetch(blob.url)
+    const res = await download(blob.url)
     if (!res.ok) throw new Error(`assembleChunks: download falhou para ${blob.pathname} (${res.status})`)
     buffers.push(Buffer.from(await res.arrayBuffer()))
   }
@@ -52,24 +55,22 @@ export async function assembleChunks(
 
   // Upload do arquivo montado
   const final = await put(finalPath, combined, {
-    access:          'public',
+    access:          'private',
     contentType:     safeMime,
     addRandomSuffix: false,
   })
 
   // Remove chunks temporários (best-effort)
-  const urlsToDelete = sorted.map(b => b.url)
-  await del(urlsToDelete).catch(() => {})
+  await del(sorted.map(b => b.url)).catch(() => {})
 
-  // Retorna a URL pública (salva como storage_path no banco)
   return final.url
 }
 
 // ─── Download para transcrição ────────────────────────────────────────────────
 
 export async function downloadAudio(storagePath: string): Promise<Buffer> {
-  // storagePath é a URL pública do Vercel Blob
-  const res = await fetch(storagePath)
+  // Usa o SDK para download autenticado (store privado)
+  const res = await download(storagePath)
   if (!res.ok) throw new Error(`downloadAudio: ${res.status} — ${storagePath}`)
   return Buffer.from(await res.arrayBuffer())
 }
