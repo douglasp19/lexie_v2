@@ -3,23 +3,23 @@ import Groq from 'groq-sdk'
 import { WHISPER_PROMPT } from './prompts'
 
 const groq = new Groq({
-  apiKey:     process.env.GROQ_API_KEY,
-  timeout:    120_000,
+  apiKey: process.env.GROQ_API_KEY,
+  timeout: 120_000,
   maxRetries: 0,
 })
 
 const WHISPER_MODEL = 'whisper-large-v3-turbo'
-const MAX_BYTES     = 20 * 1024 * 1024
-const MAX_ATTEMPTS  = 4
+const MAX_BYTES = 20 * 1024 * 1024
+const MAX_ATTEMPTS = 4
 
 export interface TranscriptionSegment {
   start: number
-  end:   number
-  text:  string
+  end: number
+  text: string
 }
 
 export interface TranscriptionResult {
-  text:     string
+  text: string
   segments: TranscriptionSegment[]
 }
 
@@ -34,15 +34,15 @@ export async function transcribeAudio(
   }
 
   const totalMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(1)
-  const parts   = Math.ceil(audioBuffer.byteLength / MAX_BYTES)
+  const parts = Math.ceil(audioBuffer.byteLength / MAX_BYTES)
   console.log(`[transcribe] ${totalMB} MB -> ${parts} partes`)
 
   let timeOffset = 0
   const allSegments: TranscriptionSegment[] = []
-  const allTexts:    string[]               = []
+  const allTexts: string[] = []
 
   for (let i = 0; i < parts; i++) {
-    const chunk  = audioBuffer.subarray(i * MAX_BYTES, (i + 1) * MAX_BYTES)
+    const chunk = audioBuffer.subarray(i * MAX_BYTES, (i + 1) * MAX_BYTES)
     const result = await transcribeChunk(chunk, mimeType, filename, i)
 
     allTexts.push(result.text)
@@ -50,8 +50,8 @@ export async function transcribeAudio(
     for (const seg of result.segments) {
       allSegments.push({
         start: seg.start + timeOffset,
-        end:   seg.end   + timeOffset,
-        text:  seg.text,
+        end: seg.end + timeOffset,
+        text: seg.text,
       })
     }
 
@@ -64,21 +64,26 @@ export async function transcribeAudio(
 }
 
 async function transcribeChunk(
-  buffer:   Buffer,
+  buffer: Buffer,
   mimeType: string,
   filename: string,
-  part:     number,
+  part: number,
   attempt = 0
 ): Promise<TranscriptionResult> {
   try {
     console.log(`[transcribe] Parte ${part} tentativa ${attempt + 1}/${MAX_ATTEMPTS} - ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB`)
 
-    const file = new File([buffer], filename, { type: mimeType })
-    const res  = await groq.audio.transcriptions.create({
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength
+    )
+
+    const file = new File([arrayBuffer], filename, { type: mimeType })
+    const res = await groq.audio.transcriptions.create({
       file,
-      model:           WHISPER_MODEL,
-      language:        'pt',
-      prompt:          WHISPER_PROMPT,
+      model: WHISPER_MODEL,
+      language: 'pt',
+      prompt: WHISPER_PROMPT,
       response_format: 'verbose_json',
     })
 
@@ -86,8 +91,8 @@ async function transcribeChunk(
 
     const segments: TranscriptionSegment[] = (data.segments ?? []).map((s: any) => ({
       start: Math.round(s.start * 10) / 10,
-      end:   Math.round(s.end   * 10) / 10,
-      text:  s.text.trim(),
+      end: Math.round(s.end * 10) / 10,
+      text: s.text.trim(),
     }))
 
     return { text: (data.text ?? '').trim(), segments }
@@ -96,7 +101,7 @@ async function transcribeChunk(
     if (attempt >= MAX_ATTEMPTS - 1) throw err
 
     if (err?.status === 429) {
-      const waitMs  = parseGroqWaitTime(err?.message) ?? (60_000 * (attempt + 1))
+      const waitMs = parseGroqWaitTime(err?.message) ?? (60_000 * (attempt + 1))
       console.warn(`[transcribe] Rate limit 429 - aguardando ${Math.ceil(waitMs / 1000)}s...`)
       await sleep(waitMs)
       return transcribeChunk(buffer, mimeType, filename, part, attempt + 1)
@@ -129,11 +134,11 @@ function parseGroqWaitTime(message?: string): number | null {
   if (!match) return null
   const raw = match[1]
   let ms = 0
-  const hours   = raw.match(/(\d+)h/)
+  const hours = raw.match(/(\d+)h/)
   const minutes = raw.match(/(\d+)m/)
   const seconds = raw.match(/([\d.]+)s/)
-  if (hours)   ms += parseInt(hours[1])     * 3_600_000
-  if (minutes) ms += parseInt(minutes[1])   * 60_000
+  if (hours) ms += parseInt(hours[1]) * 3_600_000
+  if (minutes) ms += parseInt(minutes[1]) * 60_000
   if (seconds) ms += parseFloat(seconds[1]) * 1_000
   return ms > 0 ? ms + 3_000 : null
 }
