@@ -3,6 +3,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { listSessions } from '@/lib/db/queries/sessions'
 import Link from 'next/link'
 import { SessionList } from './session-list'
+import { ExtensionBanner } from './ExtensionBanner'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,7 +23,6 @@ export default async function DashboardPage() {
   const user       = await currentUser()
   const allSessions = await listSessions(userId!).catch(() => [])
 
-  // Limita a 20 consultas mais recentes para exibição
   const sessions = allSessions.slice(0, 20)
 
   const displayName = user?.firstName ?? 'Dra.'
@@ -35,6 +35,10 @@ export default async function DashboardPage() {
 
   return (
     <div className="fade-up">
+
+      {/* Banner extensão */}
+      <ExtensionBanner />
+
       {/* Greeting */}
       <div style={{ marginBottom: '1.75rem' }}>
         <h1 style={{ fontSize: '1.65rem', marginBottom: '0.2rem' }}>
