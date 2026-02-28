@@ -27,6 +27,19 @@ export default async function PlatformLayout({ children }: { children: React.Rea
           transition: color 0.15s, background 0.15s;
         }
         .nav-link:hover { color: var(--green); background: var(--green-light); }
+        .nav-link-guide {
+          padding: 0.35rem 0.75rem;
+          border-radius: var(--radius-sm);
+          font-size: 0.84rem;
+          font-weight: 500;
+          color: var(--text3);
+          text-decoration: none;
+          transition: color 0.15s, background 0.15s;
+          display: flex;
+          align-items: center;
+          gap: 0.3rem;
+        }
+        .nav-link-guide:hover { color: var(--green); background: var(--green-light); }
       `}</style>
 
       <nav style={{
@@ -47,13 +60,14 @@ export default async function PlatformLayout({ children }: { children: React.Rea
             </span>
           </Link>
 
-          {/* Search — client component */}
+          {/* Search */}
           <NavSearch />
 
           {/* Right */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexShrink: 0 }}>
-            <Link href="/patients"   className="nav-link">Pacientes</Link>
+            <Link href="/patients"    className="nav-link">Pacientes</Link>
             <Link href="/session/new" className="nav-link">Nova Consulta</Link>
+            <Link href="/guia"        className="nav-link-guide" title="Guia de uso">📖</Link>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'var(--text2)', fontWeight: 500 }}>
               <UserButton afterSignOutUrl="/sign-in" />
               <span>{name}</span>
