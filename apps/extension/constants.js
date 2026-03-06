@@ -48,7 +48,7 @@ export const CONFIG = {
   TIMESLICE_MS: 5000,
 
   // Tamanho máximo por parte no upload chunked (5 MB)
-  CHUNK_SIZE_BYTES: 5 * 1024 * 1024,
+  CHUNK_SIZE_BYTES: 3 * 1024 * 1024,
 
   // Retry de upload
   UPLOAD_MAX_RETRIES:    3,
