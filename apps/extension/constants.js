@@ -27,7 +27,7 @@ export const MSG = {
 
 export const CONFIG = {
   // Troque pela URL real em produção
-  API_BASE: 'http://localhost:3000/api',
+  API_BASE: 'https://assistentelexie.vercel.app//api',
 
   // ─────────────────────────────────────────────────────────
   //  TEST_MODE = true  → salva o áudio como download local

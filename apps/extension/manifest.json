@@ -29,8 +29,7 @@
     "windows"
   ],
   "host_permissions": [
-    "https://lexie.app/*",
-    "https://*.lexie.app/*"
+    "https://assistentelexie.vercel.app//*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

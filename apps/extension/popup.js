@@ -92,7 +92,7 @@ function renderState(state) {
   renderBadge(state.status);
 
   if (state.sessionId) {
-    els.openPlatform.href = `https://lexie.app/session/${state.sessionId}`;
+    els.openPlatform.href = `https://assistentelexie.vercel.app/session/${state.sessionId}`;
   }
 
   switch (state.status) {
