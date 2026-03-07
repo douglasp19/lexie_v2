@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   try {
     const token = process.env.BLOB_READ_WRITE_TOKEN
 
-    // 1. Lista chunks originais
+    // 1. Lista e ordena chunks
     const { blobs } = await list({ prefix: `chunks/${uploadId}/`, token })
     const totalChunks = blobs.length
     if (!totalChunks)
@@ -39,61 +39,68 @@ export async function POST(req: NextRequest) {
     console.log(`[finalize] session=${sessionId} chunks=${totalChunks} mime=${mimeType}`)
 
     // 2. Normaliza MIME
-    const safeMime = mimeType.includes('ogg')               ? 'audio/ogg'
-                   : mimeType.includes('wav')               ? 'audio/wav'
+    const safeMime = mimeType.includes('ogg')                          ? 'audio/ogg'
+                   : mimeType.includes('wav')                          ? 'audio/wav'
                    : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'audio/mp4'
                    : 'audio/webm'
-
     const ext = safeMime === 'audio/ogg' ? 'ogg'
               : safeMime === 'audio/wav' ? 'wav'
               : safeMime === 'audio/mp4' ? 'mp4'
               : 'webm'
 
     await setStatus('transcribing')
-    await sql`
-      update audio_uploads set storage_path = ${'chunked'}, status = 'transcribing'
-      where upload_id = ${uploadId}
-    `
 
-    // 3. Transcreve cada chunk individualmente — cada um é um WebM válido
-    //    Agrupa chunks em lotes de ~18 MB para reduzir chamadas à API
-    const MAX_BATCH = 18 * 1024 * 1024
-    let timeOffset  = 0
-    const allTexts: string[]              = []
-    const allSegments: TranscriptionSegment[] = []
-
-    let batchBuffers: Buffer[] = []
-    let batchSize   = 0
-
-    async function flushBatch() {
-      if (batchBuffers.length === 0) return
-      const combined = Buffer.concat(batchBuffers)
-      console.log(`[finalize] transcrevendo lote ${(combined.byteLength / 1024 / 1024).toFixed(1)} MB`)
-      const result = await transcribeAudio(combined, safeMime, `audio.${ext}`)
-      allTexts.push(result.text)
-      for (const seg of result.segments) {
-        allSegments.push({ start: seg.start + timeOffset, end: seg.end + timeOffset, text: seg.text })
-      }
-      if (result.segments.length > 0) {
-        timeOffset += result.segments[result.segments.length - 1].end
-      }
-      batchBuffers = []
-      batchSize    = 0
-    }
-
+    // 3. Baixa e concatena todos os chunks em um único buffer WebM válido
+    const buffers: Buffer[] = []
     for (const blob of sorted) {
-      const buf = await fetchPrivate(blob.url)
-      if (batchSize + buf.byteLength > MAX_BATCH) {
-        await flushBatch()
-      }
-      batchBuffers.push(buf)
-      batchSize += buf.byteLength
+      buffers.push(await fetchPrivate(blob.url))
     }
-    await flushBatch()
+    const combined = Buffer.concat(buffers)
+    console.log(`[finalize] buffer total=${(combined.byteLength / 1024 / 1024).toFixed(1)} MB`)
 
-    const fullText = allTexts.join(' ')
+    // 4. Transcreve — transcribeAudio já divide em partes de 20MB se necessário
+    //    mas como é WebM, só funciona se o arquivo inteiro for válido (< 25MB)
+    //    Para gravações longas a 32kbps: 1h = ~14MB, 1h45min = ~24MB — ok
+    const WHISPER_MAX = 24 * 1024 * 1024
+    let fullText = ''
+    let allSegments: TranscriptionSegment[] = []
 
-    // 4. Salva transcrição
+    if (combined.byteLength <= WHISPER_MAX) {
+      // Arquivo inteiro dentro do limite — envia direto
+      const result = await transcribeAudio(combined, safeMime, `audio.${ext}`)
+      fullText    = result.text
+      allSegments = result.segments
+    } else {
+      // Arquivo grande: divide por número de chunks (cada chunk é WebM válido sozinho)
+      // Agrupa chunks originais em lotes de ~20MB
+      console.log(`[finalize] arquivo grande — transcrevendo por lotes de chunks`)
+      let batchBuffers: Buffer[] = []
+      let batchSize = 0
+      let timeOffset = 0
+
+      const flush = async () => {
+        if (!batchBuffers.length) return
+        const batch  = Buffer.concat(batchBuffers)
+        const result = await transcribeAudio(batch, safeMime, `audio.${ext}`)
+        fullText += (fullText ? ' ' : '') + result.text
+        for (const seg of result.segments) {
+          allSegments.push({ start: seg.start + timeOffset, end: seg.end + timeOffset, text: seg.text })
+        }
+        if (result.segments.length > 0)
+          timeOffset += result.segments[result.segments.length - 1].end
+        batchBuffers = []
+        batchSize    = 0
+      }
+
+      for (const buf of buffers) {
+        if (batchSize + buf.byteLength > WHISPER_MAX) await flush()
+        batchBuffers.push(buf)
+        batchSize += buf.byteLength
+      }
+      await flush()
+    }
+
+    // 5. Salva transcrição
     await sql`
       update audio_uploads set
         transcription          = ${fullText},
@@ -104,7 +111,7 @@ export async function POST(req: NextRequest) {
     `
     await sql`update sessions set status = 'processing' where id = ${sessionId}`
 
-    // 5. Deleta chunks do Blob
+    // 6. Deleta chunks
     for (const blob of sorted) {
       await deleteAudio(blob.url).catch(() => {})
     }
