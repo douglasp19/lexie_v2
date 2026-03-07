@@ -14,7 +14,7 @@ interface AudioUpload { status: string; transcription: string | null; storage_pa
 interface Template    { id: string; title: string; content: string }
 type PageParams = { params: Promise<{ id: string }> }
 
-const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB
+const CHUNK_SIZE = 3 * 1024 * 1024 // 5 MB
 
 // ── Modal de transcrição ──────────────────────────────────────────────────────
 function TranscriptionModal({ text, onClose }: { text: string; onClose: () => void }) {
