@@ -4,9 +4,9 @@ import path from 'path'
 
 const config: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
+  serverExternalPackages: ['ffmpeg-static'],
   experimental: {
     serverActions: { bodySizeLimit: '50mb' },
-    serverExternalPackages: ['ffmpeg-static'],
   },
   webpack(webpackConfig) {
     webpackConfig.resolve.alias = {
