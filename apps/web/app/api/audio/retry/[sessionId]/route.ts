@@ -42,7 +42,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const mimeType    = upload.mime_type ?? 'audio/webm'
     const ext         = mimeType.includes('ogg') ? 'ogg' : 'webm'
 
-    const result = await transcribeAudio(audioBuffer, mimeType, `audio.${ext}`)
+    const result = await transcribeAudio(audioBuffer, mimeType)
 
     await sql`
       update audio_uploads set
