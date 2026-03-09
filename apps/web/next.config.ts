@@ -5,6 +5,13 @@ import path from 'path'
 const config: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
   serverExternalPackages: ['ffmpeg-static'],
+  outputFileTracingIncludes: {
+    '/api/audio/upload-finalize': [
+      './node_modules/ffmpeg-static/ffmpeg',
+      './node_modules/ffmpeg-static/index.js',
+      './node_modules/ffmpeg-static/package.json',
+    ],
+  },
   experimental: {
     serverActions: { bodySizeLimit: '50mb' },
   },
