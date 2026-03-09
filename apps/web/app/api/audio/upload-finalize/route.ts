@@ -14,6 +14,15 @@ async function fetchPrivate(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer())
 }
 
+function normalizeMime(raw: string): string {
+  if (raw.includes('mpeg') || raw.includes('mp3'))           return 'audio/mpeg'
+  if (raw.includes('mp4') || raw.includes('m4a'))            return 'audio/mp4'
+  if (raw.includes('ogg'))                                   return 'audio/ogg'
+  if (raw.includes('wav'))                                   return 'audio/wav'
+  if (raw.includes('webm'))                                  return 'audio/webm'
+  return 'audio/webm'
+}
+
 export async function POST(req: NextRequest) {
   const body      = await req.json()
   const uploadId  = body.uploadId
@@ -31,26 +40,16 @@ export async function POST(req: NextRequest) {
 
     // 1. Lista e ordena chunks
     const { blobs } = await list({ prefix: `chunks/${uploadId}/`, token })
-    const totalChunks = blobs.length
-    if (!totalChunks)
+    if (!blobs.length)
       return NextResponse.json({ error: 'Nenhum chunk encontrado' }, { status: 400 })
 
     const sorted = blobs.sort((a, b) => a.pathname.localeCompare(b.pathname))
-    console.log(`[finalize] session=${sessionId} chunks=${totalChunks} mime=${mimeType}`)
-
-    // 2. Normaliza MIME
-    const safeMime = mimeType.includes('ogg')                          ? 'audio/ogg'
-                   : mimeType.includes('wav')                          ? 'audio/wav'
-                   : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'audio/mp4'
-                   : 'audio/webm'
-    const ext = safeMime === 'audio/ogg' ? 'ogg'
-              : safeMime === 'audio/wav' ? 'wav'
-              : safeMime === 'audio/mp4' ? 'mp4'
-              : 'webm'
+    const safeMime = normalizeMime(mimeType)
+    console.log(`[finalize] session=${sessionId} chunks=${sorted.length} mime=${safeMime}`)
 
     await setStatus('transcribing')
 
-    // 3. Baixa e concatena todos os chunks em um único buffer WebM válido
+    // 2. Baixa e concatena todos os chunks
     const buffers: Buffer[] = []
     for (const blob of sorted) {
       buffers.push(await fetchPrivate(blob.url))
@@ -58,49 +57,11 @@ export async function POST(req: NextRequest) {
     const combined = Buffer.concat(buffers)
     console.log(`[finalize] buffer total=${(combined.byteLength / 1024 / 1024).toFixed(1)} MB`)
 
-    // 4. Transcreve — transcribeAudio já divide em partes de 20MB se necessário
-    //    mas como é WebM, só funciona se o arquivo inteiro for válido (< 25MB)
-    //    Para gravações longas a 32kbps: 1h = ~14MB, 1h45min = ~24MB — ok
-    const WHISPER_MAX = 24 * 1024 * 1024
-    let fullText = ''
-    let allSegments: TranscriptionSegment[] = []
+    // 3. Transcreve — transcribeAudio usa ffmpeg para dividir arquivos > 24 MB por tempo
+    const result = await transcribeAudio(combined, safeMime)
+    const { text: fullText, segments: allSegments } = result
 
-    if (combined.byteLength <= WHISPER_MAX) {
-      // Arquivo inteiro dentro do limite — envia direto
-      const result = await transcribeAudio(combined, safeMime, `audio.${ext}`)
-      fullText    = result.text
-      allSegments = result.segments
-    } else {
-      // Arquivo grande: divide por número de chunks (cada chunk é WebM válido sozinho)
-      // Agrupa chunks originais em lotes de ~20MB
-      console.log(`[finalize] arquivo grande — transcrevendo por lotes de chunks`)
-      let batchBuffers: Buffer[] = []
-      let batchSize = 0
-      let timeOffset = 0
-
-      const flush = async () => {
-        if (!batchBuffers.length) return
-        const batch  = Buffer.concat(batchBuffers)
-        const result = await transcribeAudio(batch, safeMime, `audio.${ext}`)
-        fullText += (fullText ? ' ' : '') + result.text
-        for (const seg of result.segments) {
-          allSegments.push({ start: seg.start + timeOffset, end: seg.end + timeOffset, text: seg.text })
-        }
-        if (result.segments.length > 0)
-          timeOffset += result.segments[result.segments.length - 1].end
-        batchBuffers = []
-        batchSize    = 0
-      }
-
-      for (const buf of buffers) {
-        if (batchSize + buf.byteLength > WHISPER_MAX) await flush()
-        batchBuffers.push(buf)
-        batchSize += buf.byteLength
-      }
-      await flush()
-    }
-
-    // 5. Salva transcrição
+    // 4. Salva transcrição
     await sql`
       update audio_uploads set
         transcription          = ${fullText},
@@ -111,7 +72,7 @@ export async function POST(req: NextRequest) {
     `
     await sql`update sessions set status = 'processing' where id = ${sessionId}`
 
-    // 6. Deleta chunks
+    // 5. Deleta chunks do Blob
     for (const blob of sorted) {
       await deleteAudio(blob.url).catch(() => {})
     }
@@ -120,6 +81,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, transcriptionLength: fullText.length })
 
   } catch (err: any) {
+    // 429 = rate limit — não marca como erro permanente, deixa o usuário tentar de novo
+    if (err?.status === 429) {
+      await setStatus('error').catch(() => {})
+      console.warn('[finalize] 429 rate limit:', err.message)
+      return NextResponse.json(
+        { error: 'Limite de transcrição atingido. Aguarde alguns minutos e tente novamente.' },
+        { status: 429 }
+      )
+    }
+
     await setStatus('error').catch(() => {})
     console.error('[finalize] ❌', err?.message ?? err)
     return NextResponse.json({ error: err?.message ?? 'Erro desconhecido' }, { status: 500 })

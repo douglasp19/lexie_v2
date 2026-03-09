@@ -15,61 +15,47 @@ const groq = new Groq({
   maxRetries: 0,
 })
 
-const WHISPER_MODEL  = 'whisper-large-v3-turbo'
-const WHISPER_MAX    = 24 * 1024 * 1024   // 24 MB — limite real do Whisper
-const MAX_ATTEMPTS   = 4
-const SEGMENT_MINS   = 20                 // cada parte ffmpeg = 20 min
+const WHISPER_MODEL = 'whisper-large-v3-turbo'
+const WHISPER_MAX   = 24 * 1024 * 1024   // 24 MB
+const MAX_ATTEMPTS  = 3
+const SEGMENT_MINS  = 20                 // partes de 20 min ao dividir com ffmpeg
 
 export interface TranscriptionSegment { start: number; end: number; text: string }
 export interface TranscriptionResult  { text: string; segments: TranscriptionSegment[] }
 
 // ─── MIME helpers ─────────────────────────────────────────────────────────────
 
-function normalizeMime(mime: string): string {
-  if (mime === 'audio/x-m4a' || mime === 'audio/m4a') return 'audio/mp4'
-  if (mime === 'audio/mpeg'  || mime === 'audio/mp3')  return 'audio/mpeg'
-  return mime
-}
-
 function extFromMime(mime: string): string {
-  const map: Record<string, string> = {
-    'audio/webm': 'webm',
-    'audio/ogg':  'ogg',
-    'audio/wav':  'wav',
-    'audio/mp4':  'mp4',
-    'audio/mpeg': 'mp3',
-    'audio/mp3':  'mp3',
-  }
-  return map[mime] ?? 'webm'
+  if (mime === 'audio/mpeg' || mime === 'audio/mp3') return 'mp3'
+  if (mime === 'audio/mp4')                          return 'mp4'
+  if (mime === 'audio/ogg')                          return 'ogg'
+  if (mime === 'audio/wav')                          return 'wav'
+  return 'webm'
 }
 
-// ─── ffmpeg split ─────────────────────────────────────────────────────────────
+// ─── ffmpeg split por tempo ───────────────────────────────────────────────────
 
 async function splitWithFfmpeg(inputPath: string, ext: string): Promise<string[]> {
-  // Tenta encontrar o ffmpeg — usa ffmpeg-static se disponível
   let ffmpegBin = 'ffmpeg'
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    ffmpegBin = require('ffmpeg-static') as string
-  } catch {}
+  try { ffmpegBin = require('ffmpeg-static') as string } catch {}
 
   const outDir     = os.tmpdir()
-  const outPattern = path.join(outDir, `lexie_part_%03d.${ext}`)
+  const tag        = Date.now()
+  const outPattern = path.join(outDir, `lexie_${tag}_part_%03d.${ext}`)
 
   await execFileAsync(ffmpegBin, [
-    '-i',        inputPath,
-    '-f',        'segment',
+    '-i', inputPath,
+    '-f', 'segment',
     '-segment_time', String(SEGMENT_MINS * 60),
-    '-c',        'copy',           // sem re-encode — rápido e preserva qualidade
+    '-c', 'copy',
     '-reset_timestamps', '1',
     '-y',
     outPattern,
   ])
 
-  // Coleta arquivos gerados em ordem
   const parts: string[] = []
   for (let i = 0; ; i++) {
-    const p = path.join(outDir, `lexie_part_${String(i).padStart(3, '0')}.${ext}`)
+    const p = path.join(outDir, `lexie_${tag}_part_${String(i).padStart(3, '0')}.${ext}`)
     if (!fs.existsSync(p)) break
     parts.push(p)
   }
@@ -81,19 +67,16 @@ async function splitWithFfmpeg(inputPath: string, ext: string): Promise<string[]
 export async function transcribeAudio(
   audioBuffer: Buffer,
   mimeType:    string,
-  filename =   'audio'
 ): Promise<TranscriptionResult> {
 
-  const safeMime = normalizeMime(mimeType)
-  const ext      = extFromMime(safeMime)
+  const ext = extFromMime(mimeType)
 
-  // Arquivo dentro do limite — envia direto
   if (audioBuffer.byteLength <= WHISPER_MAX) {
-    return transcribeChunk(audioBuffer, safeMime, ext, 0)
+    return transcribeChunk(audioBuffer, mimeType, ext, 0)
   }
 
-  // Arquivo grande — divide com ffmpeg por tempo (produz partes válidas)
-  console.log(`[transcribe] ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB — dividindo com ffmpeg`)
+  // Arquivo > 24 MB — divide com ffmpeg por tempo
+  console.log(`[transcribe] ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB — dividindo com ffmpeg (${SEGMENT_MINS} min/parte)`)
 
   const tmpInput = path.join(os.tmpdir(), `lexie_input_${Date.now()}.${ext}`)
   await fs.promises.writeFile(tmpInput, audioBuffer)
@@ -101,12 +84,12 @@ export async function transcribeAudio(
   let parts: string[] = []
   try {
     parts = await splitWithFfmpeg(tmpInput, ext)
-    console.log(`[transcribe] ${parts.length} partes geradas`)
+    console.log(`[transcribe] ${parts.length} partes geradas pelo ffmpeg`)
   } catch (err: any) {
-    console.error('[transcribe] ffmpeg falhou:', err.message)
-    // Fallback: tenta enviar o arquivo inteiro e deixa o Whisper recusar se for grande demais
     await fs.promises.unlink(tmpInput).catch(() => {})
-    return transcribeChunk(audioBuffer, safeMime, ext, 0)
+    console.error('[transcribe] ffmpeg falhou:', err.message)
+    // Tenta enviar o arquivo inteiro — o Whisper vai rejeitar se for > 25 MB
+    return transcribeChunk(audioBuffer, mimeType, ext, 0)
   }
 
   await fs.promises.unlink(tmpInput).catch(() => {})
@@ -117,15 +100,18 @@ export async function transcribeAudio(
 
   for (let i = 0; i < parts.length; i++) {
     const buf    = await fs.promises.readFile(parts[i])
-    const result = await transcribeChunk(buf, safeMime, ext, i)
+    const result = await transcribeChunk(buf, mimeType, ext, i)
 
     allTexts.push(result.text)
     for (const seg of result.segments) {
-      allSegments.push({ start: seg.start + timeOffset, end: seg.end + timeOffset, text: seg.text })
+      allSegments.push({
+        start: seg.start + timeOffset,
+        end:   seg.end   + timeOffset,
+        text:  seg.text,
+      })
     }
-    if (result.segments.length > 0) {
+    if (result.segments.length > 0)
       timeOffset += result.segments[result.segments.length - 1].end
-    }
 
     await fs.promises.unlink(parts[i]).catch(() => {})
   }
@@ -133,7 +119,7 @@ export async function transcribeAudio(
   return { text: allTexts.join(' '), segments: allSegments }
 }
 
-// ─── Transcreve um buffer único ───────────────────────────────────────────────
+// ─── Transcreve um buffer ─────────────────────────────────────────────────────
 
 async function transcribeChunk(
   buffer:  Buffer,
@@ -169,20 +155,17 @@ async function transcribeChunk(
     return { text: (data.text ?? '').trim(), segments }
 
   } catch (err: any) {
+    // 400 = arquivo inválido — NÃO faz retry, só desperdiça cota
+    if (err?.status === 400) throw err
+
+    // 429 = rate limit — propaga imediatamente, sem retry
+    if (err?.status === 429) throw err
+
     if (attempt >= MAX_ATTEMPTS - 1) throw err
 
-    if (err?.status === 429) {
-      const waitMs = (attempt + 1) * 60_000
-      console.warn(`[transcribe] 429 — aguardando ${waitMs / 1000}s`)
-      await sleep(waitMs)
-      return transcribeChunk(buffer, mime, ext, part, attempt + 1)
-    }
-
-    const retryable = err?.status >= 500
+    if (err?.status >= 500
       || err?.message?.includes('timeout')
-      || err?.message?.includes('ECONNRESET')
-
-    if (retryable) {
+      || err?.message?.includes('ECONNRESET')) {
       await sleep((attempt + 1) * 5_000)
       return transcribeChunk(buffer, mime, ext, part, attempt + 1)
     }

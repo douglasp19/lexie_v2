@@ -67,7 +67,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexShrink: 0 }}>
             <Link href="/patients"    className="nav-link">Pacientes</Link>
             <Link href="/session/new" className="nav-link">Nova Consulta</Link>
-            <Link href="/guia"        className="nav-link-guide" title="Guia de uso">📖</Link>
+            <Link href="/guia"        className="nav-link-guide">Guia de Uso</Link>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'var(--text2)', fontWeight: 500 }}>
               <UserButton afterSignOutUrl="/sign-in" />
               <span>{name}</span>
